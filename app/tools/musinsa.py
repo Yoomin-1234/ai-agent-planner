@@ -189,3 +189,224 @@ search_products_tool = Tool(
     },
     func=search_products,
 )
+
+
+def get_product_detail(product_id: str):
+    """상품 ID 또는 무신사 상품 URL로 상품 상세 정보를 조회한다."""
+    load_dotenv()
+
+    api_key = os.getenv("APISH_KEY")
+    if not api_key:
+        return fail("INVALID_KEY", "APISH_KEY가 설정되지 않았습니다.")
+
+    if not isinstance(product_id, str) or not product_id.strip():
+        return fail("BAD_ARGUMENT", "상품 ID를 입력해야 합니다.")
+
+    product_id = product_id.strip()
+
+    endpoint = "https://api.api.sh/musinsa/v1/product"
+
+    try:
+        response = requests.get(
+            endpoint,
+            headers={"x-api-key": api_key},
+            params={"id": product_id},
+            timeout=30,
+        )
+
+        if response.status_code in (401, 403):
+            return fail("INVALID_KEY", "API.SH 인증에 실패했습니다.")
+
+        if response.status_code == 404:
+            return fail("NO_RESULT", "해당 상품을 찾을 수 없습니다.")
+
+        if response.status_code == 429:
+            return fail("API_LIMIT", "API.SH 호출 한도에 도달했습니다.")
+
+        if response.status_code >= 500:
+            return fail("UPSTREAM_ERROR", "API.SH 서버에서 오류가 발생했습니다.")
+
+        response.raise_for_status()
+        payload = response.json()
+
+    except requests.Timeout:
+        return fail("UPSTREAM_ERROR", "API.SH 요청 시간이 초과되었습니다.")
+
+    except requests.RequestException:
+        return fail("UPSTREAM_ERROR", "API.SH에 연결할 수 없습니다.")
+
+    except ValueError:
+        return fail("UPSTREAM_ERROR", "API.SH 응답을 JSON으로 읽을 수 없습니다.")
+
+    if not isinstance(payload, dict):
+        return fail("UPSTREAM_ERROR", "API.SH 응답 형식이 올바르지 않습니다.")
+
+    if payload.get("success") is False:
+        return fail("UPSTREAM_ERROR", "API.SH 상품 상세 조회에 실패했습니다.")
+
+    if payload.get("id") is None:
+        return fail("NO_RESULT", "해당 상품을 찾을 수 없습니다.")
+
+    # 브랜드 정보 정규화
+    brand = payload.get("brand")
+    if not isinstance(brand, dict):
+        brand = {}
+
+    # 카테고리 정보 정규화
+    raw_category = payload.get("category")
+    category = {}
+
+    if isinstance(raw_category, dict):
+        category = {
+            "depth1": (
+                raw_category.get("categoryDepth1Name")
+                or raw_category.get("categoryDepth1Title")
+            ),
+            "depth2": (
+                raw_category.get("categoryDepth2Name")
+                or raw_category.get("categoryDepth2Title")
+            ),
+            "depth3": (
+                raw_category.get("categoryDepth3Name")
+                or raw_category.get("categoryDepth3Title")
+            ),
+            "depth4": (
+                raw_category.get("categoryDepth4Name")
+                or raw_category.get("categoryDepth4Title")
+            ),
+        }
+
+    elif isinstance(raw_category, str):
+        category = {"name": raw_category}
+
+    # 소재 및 핏 정보 정규화
+    materials = []
+    fit = None
+
+    raw_materials = payload.get("materials", [])
+
+    if isinstance(raw_materials, list):
+        for item in raw_materials:
+            if not isinstance(item, dict):
+                continue
+
+            material_name = item.get("name")
+            selected = item.get("selected")
+
+            if isinstance(selected, list):
+                selected = [
+                    value for value in selected
+                    if isinstance(value, (str, int, float, bool))
+                ]
+            elif not isinstance(selected, (str, int, float, bool)):
+                selected = None
+
+            materials.append({
+                "name": material_name,
+                "selected": selected,
+            })
+
+            if material_name in ("핏", "Fit", "fit"):
+                fit = selected
+
+    # 옵션 정보 정규화
+    options = []
+    raw_options = payload.get("options", [])
+
+    if isinstance(raw_options, list):
+        for option in raw_options:
+            if not isinstance(option, dict):
+                continue
+
+            values = []
+            raw_values = option.get("values", [])
+
+            if isinstance(raw_values, list):
+                for value in raw_values:
+                    if isinstance(value, dict):
+                        values.append({
+                            "name": value.get("name"),
+                            "code": value.get("code"),
+                        })
+                    elif isinstance(value, (str, int, float)):
+                        values.append({"name": str(value)})
+
+            options.append({
+                "name": option.get("name"),
+                "type": option.get("type"),
+                "values": values,
+            })
+
+    # 실제 API가 제공한 variant 상태만 전달한다.
+    # 옵션 목록 자체를 구매 가능 재고로 간주하지 않는다.
+    variants = []
+    raw_variants = payload.get("variants", [])
+
+    if isinstance(raw_variants, list):
+        for variant in raw_variants:
+            if not isinstance(variant, dict):
+                continue
+
+            raw_values = variant.get("values", [])
+            safe_values = []
+
+            if isinstance(raw_values, list):
+                safe_values = [
+                    value for value in raw_values
+                    if isinstance(value, (str, int, float, bool))
+                ]
+
+            variants.append({
+                "code": variant.get("code"),
+                "values": safe_values,
+                "extra_price": variant.get("extra_price"),
+                "active": variant.get("active"),
+            })
+
+    return ok({
+        "product_id": payload.get("id"),
+        "name": payload.get("name"),
+        "name_en": payload.get("name_en"),
+        "style_no": payload.get("style_no"),
+        "brand_name": brand.get("name") or payload.get("brand_name"),
+        "brand_id": brand.get("id"),
+        "price": payload.get("price"),
+        "list_price": payload.get("list_price"),
+        "sale_price": payload.get("sale_price"),
+        "coupon_price": payload.get("coupon_price"),
+        "discount_rate": payload.get("discount_rate"),
+        "status": payload.get("status"),
+        "out_of_stock": payload.get("out_of_stock"),
+        "category": category,
+        "category_path": payload.get("category_path"),
+        "genders": payload.get("genders"),
+        "season": payload.get("season"),
+        "rating": payload.get("rating"),
+        "review_count": payload.get("review_count"),
+        "materials": materials,
+        "fit": fit,
+        "options": options,
+        "variants": variants,
+        "product_url": payload.get("url"),
+        "fetched_at": payload.get("fetched_at"),
+        "cached": payload.get("cached"),
+    })
+
+
+get_product_detail_tool = Tool(
+    name="get_product_detail",
+    description="무신사 상품 ID 또는 상품 URL로 가격, 품절 여부, 카테고리, 소재, 핏, 옵션 등 상품 상세 정보를 조회합니다.",
+    kind="external_api",
+    parameters={
+        "type": "object",
+        "properties": {
+            "product_id": {
+                "type": "string",
+                "description": "무신사 상품 ID 또는 상품 URL",
+            },
+        },
+        "required": ["product_id"],
+        "additionalProperties": False,
+    },
+    func=get_product_detail,
+)
