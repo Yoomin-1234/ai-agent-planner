@@ -118,15 +118,25 @@ def _summarize_result(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def start_agent_run(user_request: str) -> str:
-    """Agent 실행 ID를 생성하고 시작 이벤트를 기록한다."""
+def start_agent_run(
+    user_request: str,
+    session_id: str | None = None,
+) -> str:
+    """Agent 실행 ID를 생성하고 세션과 연결된 시작 이벤트를 기록한다."""
     run_id = str(uuid.uuid4())
+
+    if not isinstance(session_id, str) or not session_id.strip():
+        session_id = str(uuid.uuid4())
+    else:
+        session_id = session_id.strip()
+
     safe_request = _redact_text(user_request, max_length=2000)
 
     _safe_record(
         event_repository.create_agent_run,
         run_id,
         safe_request,
+        session_id,
     )
 
     _safe_record(
@@ -134,7 +144,10 @@ def start_agent_run(user_request: str) -> str:
         run_id,
         event_type="agent.started",
         status="running",
-        input_data={"user_request": safe_request},
+        input_data={
+            "session_id": session_id,
+            "user_request": safe_request,
+        },
     )
 
     return run_id

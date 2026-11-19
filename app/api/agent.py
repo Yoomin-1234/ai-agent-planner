@@ -1,5 +1,7 @@
 """Fashion Planner Agent 실행 API."""
 
+import uuid
+
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 
@@ -16,13 +18,26 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 def run_agent(request: AgentRunRequest):
     """자연어 상품 추천을 실행하고 요청 시 코디 플랜을 저장한다."""
 
+    session_id = (
+        request.session_id.strip()
+        if request.session_id and request.session_id.strip()
+        else str(uuid.uuid4())
+    )
+
     result = run_fashion_agent(
         user_request=request.message,
         user_id=request.user_id,
+        session_id=session_id,
     )
 
     if result.get("ok"):
+        data = result.get("data")
+        if isinstance(data, dict):
+            data["session_id"] = session_id
         return result
+
+    # 실패 응답에도 다음 요청에서 사용할 세션 ID를 포함한다.
+    result["session_id"] = session_id
 
     error = result.get("error", {})
     code = error.get("code", "AGENT_ERROR")

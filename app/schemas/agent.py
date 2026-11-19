@@ -18,3 +18,10 @@ class AgentRunRequest(BaseModel):
         max_length=100,
         description="플랜 저장에 사용할 사용자 구분 ID",
     )
+
+    session_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="대화 맥락을 유지할 세션 ID",
+    )

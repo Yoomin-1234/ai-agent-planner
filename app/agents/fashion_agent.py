@@ -3,6 +3,7 @@
 import os
 import json
 import re
+import uuid
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -524,7 +525,11 @@ def _build_plan_products(verified_items: list[dict]) -> list[dict]:
 
     return products
 
-def run_fashion_agent(user_request: str, user_id: str = "local") -> dict:
+def run_fashion_agent(
+    user_request: str,
+    user_id: str = "local",
+    session_id: str | None = None,
+) -> dict:
     """자연어 상품 추천을 실행하고, 명시적인 요청이 있으면 플랜으로 저장한다."""
 
     if not isinstance(user_request, str) or not user_request.strip():
@@ -533,11 +538,18 @@ def run_fashion_agent(user_request: str, user_id: str = "local") -> dict:
     if not isinstance(user_id, str) or not user_id.strip():
         return fail("BAD_ARGUMENT", "user_id는 비어 있을 수 없습니다.")
 
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+    elif not isinstance(session_id, str) or not session_id.strip():
+        return fail("BAD_ARGUMENT", "session_id는 비어 있을 수 없습니다.")
+    else:
+        session_id = session_id.strip()
+
     request_text = user_request.strip()
     user_id = user_id.strip()
     save_requested = _should_save_plan(request_text)
 
-    run_id = start_agent_run(request_text)
+    run_id = start_agent_run(request_text, session_id=session_id)
     context_tokens = activate_agent_run(run_id)
 
     try:
@@ -681,6 +693,7 @@ def run_fashion_agent(user_request: str, user_id: str = "local") -> dict:
 
         response_data = {
             "run_id": run_id,
+            "session_id": session_id,
             "answer": answer,
             "tools_used": tools_used,
             "plan_saved": plan_saved,

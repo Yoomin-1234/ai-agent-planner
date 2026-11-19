@@ -44,6 +44,7 @@ def init_database() -> None:
             """
             CREATE TABLE IF NOT EXISTS agent_runs (
                 run_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL DEFAULT 'legacy',
                 user_request TEXT NOT NULL,
                 status TEXT NOT NULL,
                 response_text TEXT,
@@ -56,6 +57,7 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS agent_events (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT 'legacy',
                 event_type TEXT NOT NULL,
                 tool_name TEXT,
                 status TEXT,
@@ -77,8 +79,48 @@ def init_database() -> None:
             """
         )
 
+        # 기존 DB에도 session_id 컬럼을 안전하게 추가한다.
+        run_columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(agent_runs)"
+            ).fetchall()
+        }
 
-def create_agent_run(run_id: str, user_request: str) -> None:
+        if "session_id" not in run_columns:
+            conn.execute(
+                "ALTER TABLE agent_runs "
+                "ADD COLUMN session_id TEXT NOT NULL DEFAULT 'legacy'"
+            )
+
+        event_columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(agent_events)"
+            ).fetchall()
+        }
+
+        if "session_id" not in event_columns:
+            conn.execute(
+                "ALTER TABLE agent_events "
+                "ADD COLUMN session_id TEXT NOT NULL DEFAULT 'legacy'"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_runs_session_id "
+            "ON agent_runs(session_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_events_session_id "
+            "ON agent_events(session_id)"
+        )
+
+
+def create_agent_run(
+    run_id: str,
+    user_request: str,
+    session_id: str = 'legacy',
+) -> None:
     """새 Agent 실행 기록을 생성한다."""
     init_database()
 
@@ -86,11 +128,11 @@ def create_agent_run(run_id: str, user_request: str) -> None:
         conn.execute(
             """
             INSERT INTO agent_runs (
-                run_id, user_request, status, started_at
+                run_id, session_id, user_request, status, started_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (run_id, user_request, "running", _now()),
+            (run_id, session_id, user_request, "running", _now()),
         )
 
 
@@ -152,17 +194,24 @@ def insert_agent_event(
     )
 
     with _connect() as conn:
+        run_row = conn.execute(
+            "SELECT session_id FROM agent_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        session_id = run_row["session_id"] if run_row else "legacy"
+
         conn.execute(
             """
             INSERT INTO agent_events (
-                run_id, event_type, tool_name, status,
+                run_id, session_id, event_type, tool_name, status,
                 input_data, output_summary, error_code,
                 created_at, duration_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
+                session_id,
                 event_type,
                 tool_name,
                 status,
@@ -204,6 +253,7 @@ def list_recent_events(
             SELECT
                 e.event_id,
                 e.run_id,
+                e.session_id,
                 e.event_type,
                 e.tool_name,
                 e.status,
