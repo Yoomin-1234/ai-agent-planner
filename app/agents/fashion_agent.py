@@ -433,6 +433,73 @@ def _extract_plan_metadata(user_request: str) -> dict:
     }
 
 
+
+def _extract_search_context(messages, user_request: str) -> dict:
+    """최초 상품 검색 Tool 호출 인자를 재계획용으로 저장한다."""
+    allowed = {
+        "keyword",
+        "category",
+        "brand",
+        "gender",
+        "min_price",
+        "max_price",
+        "color",
+        "size",
+        "sort",
+        "limit",
+    }
+
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+
+        for call in reversed(message.tool_calls):
+            if call.get("name") != "search_products":
+                continue
+
+            args = call.get("args", {})
+            if not isinstance(args, dict):
+                continue
+
+            context = {
+                key: args[key]
+                for key in allowed
+                if key in args
+            }
+
+            category = context.get("category")
+            if category and not re.fullmatch(
+                r"\d{3}(?:\d{3})?",
+                str(category),
+            ):
+                keyword_parts = [
+                    part for part in (
+                        context.get("keyword"),
+                        str(category),
+                    )
+                    if part
+                ]
+                context["keyword"] = " ".join(keyword_parts)
+                context["category"] = None
+
+            # 요청 개수가 검색어 뒤에 잘못 붙은 경우 제거한다.
+            count_match = re.search(r"(\d+)\s*개", user_request)
+            keyword = context.get("keyword")
+
+            if count_match and isinstance(keyword, str):
+                keyword = re.sub(r"\s+\d{1,2}$", "", keyword).strip()
+                context["keyword"] = keyword or None
+
+            context.setdefault("gender", "all")
+            context.setdefault("sort", "popular")
+            context.setdefault("limit", 10)
+            context["exclude_product_ids"] = []
+
+            return context
+
+    return {}
+
+
 def _build_plan_products(verified_items: list[dict]) -> list[dict]:
     """검증된 API 상품 데이터만 플랜 저장 형식으로 변환한다."""
     products = []
@@ -570,6 +637,7 @@ def run_fashion_agent(user_request: str, user_id: str = "local") -> dict:
                             "user_id": user_id,
                             **metadata,
                             "products": products,
+                            "search_context": _extract_search_context(messages, request_text),
                             "status": "draft",
                         })
                     except Exception:
