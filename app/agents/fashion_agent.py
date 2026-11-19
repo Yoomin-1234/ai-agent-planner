@@ -20,7 +20,7 @@ from ..services.event_service import (
     finish_agent_run,
     record_plan_saved,
 )
-from ..services import plan_service
+from ..services import memory_service, plan_service
 from ..tools.base import fail, ok
 
 
@@ -241,7 +241,11 @@ def _extract_max_price(user_request: str):
 
 
 
-def _get_verified_items(tool_result: dict, user_request: str):
+def _get_verified_items(
+    tool_result: dict,
+    user_request: str,
+    max_price_override: int | None = None,
+):
     """API 원본 결과에서 예산을 충족하고 상품 ID가 확인된 항목만 추출한다."""
     data = tool_result.get("data", {})
     items = data.get("items", [])
@@ -249,7 +253,11 @@ def _get_verified_items(tool_result: dict, user_request: str):
     if not isinstance(items, list):
         return []
 
-    max_price = _extract_max_price(user_request)
+    max_price = (
+        max_price_override
+        if max_price_override is not None
+        else _extract_max_price(user_request)
+    )
     verified = []
 
     for item in items:
@@ -296,6 +304,7 @@ def _format_search_result(
     tool_result: dict,
     user_request: str,
     verified_items: list[dict] | None = None,
+    max_price_override: int | None = None,
 ) -> str:
     """API에서 검증한 상품 정보로 추천 응답을 생성한다."""
     raw_items = tool_result.get("data", {}).get("items", [])
@@ -306,7 +315,11 @@ def _format_search_result(
     if verified_items is None:
         verified_items = _get_verified_items(tool_result, user_request)
 
-    max_price = _extract_max_price(user_request)
+    max_price = (
+        max_price_override
+        if max_price_override is not None
+        else _extract_max_price(user_request)
+    )
 
     lines = ["무신사 API 검색 결과를 기준으로 정리한 상품 목록입니다."]
 
@@ -553,6 +566,30 @@ def run_fashion_agent(
     context_tokens = activate_agent_run(run_id)
 
     try:
+        # 이전 대화 Memory를 조회한다.
+        memory_state = {
+            "context": {},
+            "recent_summary": None,
+            "last_plan_id": None,
+        }
+        memory_available = True
+
+        try:
+            memory_state = memory_service.load_turn_memory(
+                user_id=user_id,
+                session_id=session_id,
+                user_request=request_text,
+            )
+        except Exception:
+            # Memory DB 오류가 상품 검색 자체를 중단시키지 않도록 한다.
+            memory_available = False
+
+        agent_request = memory_service.build_memory_prompt(
+            user_request=request_text,
+            context=memory_state.get("context", {}),
+            recent_summary=memory_state.get("recent_summary"),
+        )
+
         agent = build_fashion_agent()
 
         result = agent.invoke(
@@ -560,7 +597,7 @@ def run_fashion_agent(
                 "messages": [
                     {
                         "role": "user",
-                        "content": request_text,
+                        "content": agent_request,
                     }
                 ]
             },
@@ -568,6 +605,10 @@ def run_fashion_agent(
         )
 
         messages = result.get("messages", [])
+        turn_search_context = _extract_search_context(
+            messages,
+            request_text,
+        )
 
         final_message = next(
             (
@@ -626,12 +667,18 @@ def run_fashion_agent(
             verified_items = _get_verified_items(
                 search_result,
                 request_text,
+                max_price_override=memory_state.get("context", {}).get(
+                    "max_price"
+                ),
             )
 
             answer = _format_search_result(
                 search_result,
                 request_text,
                 verified_items,
+                max_price_override=memory_state.get("context", {}).get(
+                    "max_price"
+                ),
             )
 
             if save_requested:
@@ -649,7 +696,7 @@ def run_fashion_agent(
                             "user_id": user_id,
                             **metadata,
                             "products": products,
-                            "search_context": _extract_search_context(messages, request_text),
+                            "search_context": turn_search_context,
                             "status": "draft",
                         })
                     except Exception:
@@ -684,6 +731,22 @@ def run_fashion_agent(
                     "\n\n상품 검색 결과가 없어 "
                     "코디 플랜을 저장하지 않았습니다."
                 )
+
+        # 상품 추천 성공 후 최신 대화 맥락을 저장한다.
+        if memory_available:
+            try:
+                memory_service.save_turn_memory(
+                    user_id=user_id,
+                    session_id=session_id,
+                    user_request=request_text,
+                    previous_context=memory_state.get("context", {}),
+                    answer=answer,
+                    search_context=turn_search_context,
+                    last_plan_id=plan["id"] if plan is not None else None,
+                )
+            except Exception:
+                # Memory 저장 실패가 성공한 상품 추천을 실패로 바꾸지 않는다.
+                pass
 
         finish_agent_run(
             run_id,
