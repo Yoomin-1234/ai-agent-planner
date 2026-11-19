@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -27,7 +28,7 @@ def search_products(
     cursor: str | None = None,
 ) -> dict[str, Any]:
     """무신사 상품을 검색하고 Agent에 필요한 필드만 반환한다."""
-    load_dotenv()
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / '.env')
 
     api_key = os.getenv("APISH_KEY")
     if not api_key:
@@ -105,8 +106,35 @@ def search_products(
     except requests.Timeout:
         return fail("UPSTREAM_ERROR", "API.SH 요청 시간이 초과되었습니다.")
 
-    except requests.RequestException:
-        return fail("UPSTREAM_ERROR", "API.SH에 연결할 수 없습니다.")
+    except requests.HTTPError as exc:
+        status_code = (
+            exc.response.status_code
+            if exc.response is not None
+            else None
+        )
+
+        if status_code is not None and 400 <= status_code < 500:
+            return fail(
+                "BAD_ARGUMENT",
+                f"API.SH 요청 인자가 올바르지 않습니다 (HTTP {status_code}).",
+            )
+
+        return fail(
+            "UPSTREAM_ERROR",
+            f"API.SH가 HTTP {status_code} 오류를 반환했습니다.",
+        )
+
+    except requests.ConnectionError:
+        return fail(
+            "UPSTREAM_ERROR",
+            "API.SH 서버에 연결할 수 없습니다.",
+        )
+
+    except requests.RequestException as exc:
+        return fail(
+            "UPSTREAM_ERROR",
+            f"API 요청 중 오류가 발생했습니다 ({type(exc).__name__}).",
+        )
 
     except ValueError:
         return fail("UPSTREAM_ERROR", "API.SH 응답을 JSON으로 읽을 수 없습니다.")
@@ -193,7 +221,7 @@ search_products_tool = Tool(
 
 def get_product_detail(product_id: str):
     """상품 ID 또는 무신사 상품 URL로 상품 상세 정보를 조회한다."""
-    load_dotenv()
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / '.env')
 
     api_key = os.getenv("APISH_KEY")
     if not api_key:
@@ -232,8 +260,35 @@ def get_product_detail(product_id: str):
     except requests.Timeout:
         return fail("UPSTREAM_ERROR", "API.SH 요청 시간이 초과되었습니다.")
 
-    except requests.RequestException:
-        return fail("UPSTREAM_ERROR", "API.SH에 연결할 수 없습니다.")
+    except requests.HTTPError as exc:
+        status_code = (
+            exc.response.status_code
+            if exc.response is not None
+            else None
+        )
+
+        if status_code is not None and 400 <= status_code < 500:
+            return fail(
+                "BAD_ARGUMENT",
+                f"API.SH 요청 인자가 올바르지 않습니다 (HTTP {status_code}).",
+            )
+
+        return fail(
+            "UPSTREAM_ERROR",
+            f"API.SH가 HTTP {status_code} 오류를 반환했습니다.",
+        )
+
+    except requests.ConnectionError:
+        return fail(
+            "UPSTREAM_ERROR",
+            "API.SH 서버에 연결할 수 없습니다.",
+        )
+
+    except requests.RequestException as exc:
+        return fail(
+            "UPSTREAM_ERROR",
+            f"API 요청 중 오류가 발생했습니다 ({type(exc).__name__}).",
+        )
 
     except ValueError:
         return fail("UPSTREAM_ERROR", "API.SH 응답을 JSON으로 읽을 수 없습니다.")
