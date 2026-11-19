@@ -17,7 +17,9 @@ from ..services.event_service import (
     activate_agent_run,
     deactivate_agent_run,
     finish_agent_run,
+    record_plan_saved,
 )
+from ..services import plan_service
 from ..tools.base import fail, ok
 
 
@@ -42,6 +44,9 @@ SYSTEM_PROMPT = """
 - category에는 숫자형 무신사 카테고리 코드만 전달한다.
 - 카테고리 코드를 모르면 category를 생략한다.
 - 예를 들어 미니멀한 니트 검색은 keyword="미니멀 니트"로 전달한다.
+- 추천할 상품 개수는 limit으로 전달하고 keyword에 숫자를 포함하지 않는다.
+- 검색 키워드에는 의류 종류, 스타일, 색상 등 검색에 필요한 단어만 포함한다.
+- 상품 고유 모델 번호가 명시된 경우에만 해당 번호를 keyword에 포함한다.
 - 조건이 불명확하면 임의로 확정하지 않는다.
 
 [정확성 규칙]
@@ -234,61 +239,98 @@ def _extract_max_price(user_request: str):
     return None
 
 
-def _format_search_result(tool_result: dict, user_request: str) -> str:
-    """LLM이 가격 등을 임의로 바꾸지 못하도록 API 데이터로 추천 목록을 만든다."""
+
+def _get_verified_items(tool_result: dict, user_request: str):
+    """API 원본 결과에서 예산을 충족하고 상품 ID가 확인된 항목만 추출한다."""
     data = tool_result.get("data", {})
     items = data.get("items", [])
 
     if not isinstance(items, list):
-        return "상품 검색 결과 형식이 올바르지 않습니다."
+        return []
 
     max_price = _extract_max_price(user_request)
-    verified_items = []
+    verified = []
 
     for item in items:
         if not isinstance(item, dict):
             continue
 
-        sale_price = item.get("sale_price")
-        price = sale_price if sale_price is not None else item.get("price")
+        product_id = item.get("product_id")
 
-        if isinstance(price, str):
+        if not isinstance(product_id, (int, str)) or not str(product_id).strip():
+            continue
+
+        price = (
+            item.get("sale_price")
+            if item.get("sale_price") is not None
+            else item.get("price")
+        )
+
+        if isinstance(price, bool):
+            price = None
+        elif isinstance(price, str):
             try:
                 price = int(price.replace(",", ""))
             except ValueError:
                 price = None
+        elif isinstance(price, (int, float)):
+            price = int(price)
+        else:
+            price = None
 
+        # 예산 조건이 있으면 가격 미확인 상품과 예산 초과 상품을 제외한다.
         if max_price is not None:
-            # 예산 요청에서는 가격을 확인할 수 없는 상품도 제외한다.
-            if not isinstance(price, (int, float)) or price > max_price:
+            if price is None or price > max_price:
                 continue
 
-        verified_items.append((item, price))
+        verified.append({
+            "source": item,
+            "price": price,
+        })
+
+    return verified
+
+
+def _format_search_result(
+    tool_result: dict,
+    user_request: str,
+    verified_items: list[dict] | None = None,
+) -> str:
+    """API에서 검증한 상품 정보로 추천 응답을 생성한다."""
+    raw_items = tool_result.get("data", {}).get("items", [])
+
+    if not isinstance(raw_items, list):
+        return "상품 검색 결과 형식이 올바르지 않습니다."
+
+    if verified_items is None:
+        verified_items = _get_verified_items(tool_result, user_request)
+
+    max_price = _extract_max_price(user_request)
 
     lines = ["무신사 API 검색 결과를 기준으로 정리한 상품 목록입니다."]
 
     if max_price is not None:
         lines.append(f"예산 조건: {max_price:,}원 이하")
         lines.append(
-            f"API 검색 결과 {len(items)}개 중 예산을 확인할 수 있는 상품 "
+            f"API 검색 결과 {len(raw_items)}개 중 조건을 통과한 상품 "
             f"{len(verified_items)}개를 추렸습니다."
         )
     else:
         lines.append(f"검색 결과: {len(verified_items)}개")
 
     if not verified_items:
-        lines.append("조건에 맞고 가격을 확인할 수 있는 상품을 찾지 못했습니다.")
+        lines.append("조건에 맞는 상품을 찾지 못했습니다.")
         return "\n".join(lines)
 
-    for index, (item, price) in enumerate(verified_items, start=1):
-        name = item.get("name") or "상품명 정보 없음"
-        brand = item.get("brand_name") or "브랜드 정보 없음"
+    for index, entry in enumerate(verified_items, start=1):
+        item = entry["source"]
+        price = entry["price"]
 
-        lines.append(f"\n{index}. {name}")
-        lines.append(f"- 브랜드: {brand}")
+        lines.append(f"\n{index}. {item.get('name') or '상품명 정보 없음'}")
+        lines.append(f"- 브랜드: {item.get('brand_name') or '브랜드 정보 없음'}")
 
         if price is not None:
-            lines.append(f"- 판매가(API 기준): {price:,.0f}원")
+            lines.append(f"- 판매가(API 기준): {price:,}원")
         else:
             lines.append("- 판매가: 정보 없음")
 
@@ -319,15 +361,115 @@ def _format_search_result(tool_result: dict, user_request: str) -> str:
     return "\n".join(lines)
 
 
-def run_fashion_agent(user_request: str) -> dict:
-    """사용자의 자연어 요청을 실행하고 이벤트를 기록한다."""
+def _should_save_plan(user_request: str) -> bool:
+    """사용자가 코디 플랜 저장을 명시적으로 요청했는지 판단한다."""
+    text = user_request.strip()
+
+    # 명시적인 저장 거부나 취소 표현이 있으면 저장하지 않는다.
+    negative_patterns = [
+        r"저장.{0,8}(?:하지\s*마|하지\s*말|안\s*해|필요\s*없)",
+        r"플랜.{0,8}(?:만들|생성|저장).{0,8}(?:하지\s*마|하지\s*말|안\s*해)",
+    ]
+
+    if any(re.search(pattern, text) for pattern in negative_patterns):
+        return False
+
+    positive_patterns = [
+        r"저장\s*(?:해\s*줘|해\s*주세요|해줘|해주세요|해주라|해)",
+        r"플랜(?:으로|에|을)?\s*(?:저장|만들|생성|추가|넣)",
+        r"코디\s*플랜.{0,8}(?:저장|만들|생성|추가|넣)",
+        r"계획(?:으로|에)?\s*(?:저장|추가|넣)",
+    ]
+
+    return any(re.search(pattern, text) for pattern in positive_patterns)
+
+
+def _extract_plan_metadata(user_request: str) -> dict:
+    """자연어 요청에서 플랜 제목, 계절, 착용 목적, 예산을 추출한다."""
+
+    seasons = ["봄", "여름", "가을", "겨울"]
+    occasions = [
+        "출근", "데이트", "면접", "여행",
+        "운동", "일상", "하객", "등교", "캠퍼스",
+    ]
+    categories = [
+        "니트", "코트", "셔츠", "원피스",
+        "재킷", "자켓", "팬츠", "스커트",
+        "패딩", "가디건", "스웨터",
+    ]
+
+    season = next(
+        (value for value in seasons if value in user_request),
+        None,
+    )
+
+    occasion = next(
+        (value for value in occasions if value in user_request),
+        None,
+    )
+
+    category = next(
+        (value for value in categories if value in user_request),
+        None,
+    )
+
+    if season and occasion:
+        title = f"{season} {occasion} 코디"
+    elif season:
+        title = f"{season} 코디 플랜"
+    elif occasion:
+        title = f"{occasion} 코디"
+    elif category:
+        title = f"{category} 추천 코디"
+    else:
+        title = "맞춤 코디 플랜"
+
+    return {
+        "title": title,
+        "description": user_request[:2000],
+        "occasion": occasion,
+        "season": season,
+        "budget": _extract_max_price(user_request),
+    }
+
+
+def _build_plan_products(verified_items: list[dict]) -> list[dict]:
+    """검증된 API 상품 데이터만 플랜 저장 형식으로 변환한다."""
+    products = []
+
+    for entry in verified_items:
+        item = entry["source"]
+        product_url = item.get("product_url")
+
+        if not (
+            isinstance(product_url, str)
+            and product_url.startswith("https://www.musinsa.com/products/")
+        ):
+            product_url = None
+
+        products.append({
+            "product_id": item["product_id"],
+            "name": item.get("name"),
+            "brand_name": item.get("brand_name"),
+            "sale_price": entry["price"],
+            "product_url": product_url,
+        })
+
+    return products
+
+def run_fashion_agent(user_request: str, user_id: str = "local") -> dict:
+    """자연어 상품 추천을 실행하고, 명시적인 요청이 있으면 플랜으로 저장한다."""
 
     if not isinstance(user_request, str) or not user_request.strip():
         return fail("BAD_ARGUMENT", "사용자 요청을 입력해야 합니다.")
 
-    request_text = user_request.strip()
+    if not isinstance(user_id, str) or not user_id.strip():
+        return fail("BAD_ARGUMENT", "user_id는 비어 있을 수 없습니다.")
 
-    # 실행 ID 생성 및 실행 컨텍스트 설정
+    request_text = user_request.strip()
+    user_id = user_id.strip()
+    save_requested = _should_save_plan(request_text)
+
     run_id = start_agent_run(request_text)
     context_tokens = activate_agent_run(run_id)
 
@@ -343,9 +485,7 @@ def run_fashion_agent(user_request: str) -> dict:
                     }
                 ]
             },
-            config={
-                "recursion_limit": 12,
-            },
+            config={"recursion_limit": 12},
         )
 
         messages = result.get("messages", [])
@@ -375,18 +515,18 @@ def run_fashion_agent(user_request: str) -> dict:
                 status="failed",
                 error_code="AGENT_ERROR",
             )
-            return fail(
-                "AGENT_ERROR",
-                "Agent 응답을 생성하지 못했습니다.",
-            )
+            return fail("AGENT_ERROR", "Agent 응답을 생성하지 못했습니다.")
 
-        # 가장 마지막 상품 검색 결과를 확인한다.
+        # 가장 마지막 검색 결과를 가져온다.
         search_result = None
 
         for message in reversed(messages):
             if isinstance(message, ToolMessage) and message.name == "search_products":
                 search_result = _decode_tool_result(message.content)
                 break
+
+        plan = None
+        plan_saved = False
 
         if search_result is not None:
             if search_result.get("ok") is False:
@@ -404,9 +544,66 @@ def run_fashion_agent(user_request: str) -> dict:
                 )
                 return fail(error_code, error_message)
 
-            answer = _format_search_result(search_result, request_text)
+            verified_items = _get_verified_items(
+                search_result,
+                request_text,
+            )
+
+            answer = _format_search_result(
+                search_result,
+                request_text,
+                verified_items,
+            )
+
+            if save_requested:
+                if not verified_items:
+                    answer += (
+                        "\n\n조건을 충족하는 상품이 없어 "
+                        "코디 플랜은 저장하지 않았습니다."
+                    )
+                else:
+                    metadata = _extract_plan_metadata(request_text)
+                    products = _build_plan_products(verified_items)
+
+                    try:
+                        plan = plan_service.create_plan({
+                            "user_id": user_id,
+                            **metadata,
+                            "products": products,
+                            "status": "draft",
+                        })
+                    except Exception:
+                        finish_agent_run(
+                            run_id,
+                            status="failed",
+                            error_code="PLAN_SAVE_ERROR",
+                        )
+                        return fail(
+                            "PLAN_SAVE_ERROR",
+                            "상품 검색은 성공했지만 코디 플랜 저장에 실패했습니다.",
+                        )
+
+                    plan_saved = True
+                    record_plan_saved(
+                        plan_id=plan["id"],
+                        product_count=len(products),
+                    )
+
+                    answer += (
+                        "\n\n코디 플랜 저장이 완료되었습니다."
+                        f"\n- 플랜 ID: {plan['id']}"
+                        f"\n- 플랜 제목: {plan['title']}"
+                        f"\n- 저장 상품 수: {len(products)}개"
+                    )
+
         else:
             answer = _content_to_text(final_message.content)
+
+            if save_requested:
+                answer += (
+                    "\n\n상품 검색 결과가 없어 "
+                    "코디 플랜을 저장하지 않았습니다."
+                )
 
         finish_agent_run(
             run_id,
@@ -414,11 +611,17 @@ def run_fashion_agent(user_request: str) -> dict:
             response_text=answer,
         )
 
-        return ok({
+        response_data = {
             "run_id": run_id,
             "answer": answer,
             "tools_used": tools_used,
-        })
+            "plan_saved": plan_saved,
+        }
+
+        if plan is not None:
+            response_data["plan"] = plan
+
+        return ok(response_data)
 
     except Exception as exc:
         if exc.__class__.__name__ == "GraphRecursionError":

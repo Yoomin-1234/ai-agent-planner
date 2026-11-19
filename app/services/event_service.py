@@ -258,3 +258,22 @@ def finish_agent_run(
         error_code=error_code,
         duration_ms=duration_ms,
     )
+
+
+def record_plan_saved(plan_id: int, product_count: int) -> None:
+    """현재 Agent 실행에 연결된 플랜 저장 이벤트를 기록한다."""
+    run_id = _current_run_id.get()
+
+    if not run_id:
+        return
+
+    _safe_record(
+        event_repository.insert_agent_event,
+        run_id,
+        event_type="plan.saved",
+        status="success",
+        output_summary={
+            "plan_id": plan_id,
+            "product_count": product_count,
+        },
+    )
