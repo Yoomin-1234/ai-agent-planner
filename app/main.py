@@ -4,7 +4,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import tools, events
+from .api import tools, events, plans
 
 app = FastAPI(
     title="AI Fashion Planner API",
@@ -31,6 +31,7 @@ app.add_middleware(
 
 app.include_router(tools.router)
 app.include_router(events.router)
+app.include_router(plans.router)
 
 
 @app.get("/health", tags=["health"], summary="서버 상태 확인")
