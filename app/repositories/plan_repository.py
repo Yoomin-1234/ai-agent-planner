@@ -38,6 +38,8 @@ def init_plan_table() -> None:
                 season TEXT,
                 budget INTEGER CHECK (budget IS NULL OR budget >= 0),
                 products_json TEXT NOT NULL DEFAULT '[]',
+                replan_count INTEGER NOT NULL DEFAULT 0,
+                search_context_json TEXT NOT NULL DEFAULT '{}',
                 status TEXT NOT NULL DEFAULT 'draft'
                     CHECK (
                         status IN (
@@ -59,16 +61,37 @@ def init_plan_table() -> None:
             """
         )
 
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(plans)").fetchall()
+        }
+
+        if "replan_count" not in columns:
+            conn.execute(
+                "ALTER TABLE plans ADD COLUMN replan_count INTEGER NOT NULL DEFAULT 0"
+            )
+
+        if "search_context_json" not in columns:
+            conn.execute(
+                "ALTER TABLE plans ADD COLUMN search_context_json TEXT NOT NULL DEFAULT '{}'"
+            )
+
 
 def _decode_plan(row: sqlite3.Row) -> dict[str, Any]:
     """SQLite 행을 API 응답용 딕셔너리로 변환한다."""
     plan = dict(row)
     raw_products = plan.pop("products_json", "[]")
+    raw_context = plan.pop("search_context_json", "{}")
 
     try:
         plan["products"] = json.loads(raw_products)
     except (ValueError, TypeError):
         plan["products"] = []
+
+    try:
+        plan["search_context"] = json.loads(raw_context)
+    except (ValueError, TypeError):
+        plan["search_context"] = {}
 
     return plan
 
@@ -88,9 +111,10 @@ def create_plan(data: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO plans (
                 user_id, title, description, occasion, season,
-                budget, products_json, status, created_at, updated_at
+                budget, products_json, status, created_at, updated_at,
+                replan_count, search_context_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data.get("user_id", "local"),
@@ -103,6 +127,8 @@ def create_plan(data: dict[str, Any]) -> dict[str, Any]:
                 data.get("status", "draft"),
                 now,
                 now,
+                data.get("replan_count", 0),
+                json.dumps(data.get("search_context", {}), ensure_ascii=False),
             ),
         )
 
@@ -189,6 +215,8 @@ def update_plan(
         "budget",
         "products",
         "status",
+        "replan_count",
+        "search_context",
     }
 
     updates = {
@@ -206,10 +234,23 @@ def update_plan(
             ensure_ascii=False,
         )
 
+    if "search_context" in updates:
+        updates["search_context"] = json.dumps(
+            updates["search_context"],
+            ensure_ascii=False,
+        )
+
     updates["updated_at"] = _now()
 
+    # Python 필드명과 SQLite 실제 컬럼명을 매핑한다.
+    column_mapping = {
+        "products": "products_json",
+        "search_context": "search_context_json",
+    }
+
     assignments = ", ".join(
-        f"{column} = ?" for column in updates
+        f"{column_mapping.get(column, column)} = ?"
+        for column in updates
     )
     values = list(updates.values())
 

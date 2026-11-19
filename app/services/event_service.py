@@ -277,3 +277,32 @@ def record_plan_saved(plan_id: int, product_count: int) -> None:
             "product_count": product_count,
         },
     )
+
+
+def record_plan_replanned(
+    plan_id: int,
+    replan_count: int,
+    max_replan_count: int,
+    product_count: int,
+    changed_conditions: dict,
+    status: str = "success",
+) -> None:
+    """코디 플랜 재계획 이벤트를 기록한다."""
+    run_id = _current_run_id.get()
+
+    if not run_id:
+        return
+
+    _safe_record(
+        event_repository.insert_agent_event,
+        run_id,
+        event_type="plan.replanned",
+        status=status,
+        output_summary={
+            "plan_id": plan_id,
+            "replan_count": replan_count,
+            "max_replan_count": max_replan_count,
+            "product_count": product_count,
+            "changed_conditions": _sanitize(changed_conditions),
+        },
+    )

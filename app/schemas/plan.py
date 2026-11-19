@@ -1,6 +1,6 @@
 """코디 플랜 요청 및 응답 스키마."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,6 +61,8 @@ class PlanRead(BaseModel):
     budget: int | None
     products: list[PlanProduct]
     status: PlanStatus
+    replan_count: int = 0
+    search_context: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
