@@ -657,6 +657,21 @@ def run_fashion_agent(
                     "상품 검색에 실패했습니다.",
                 )
 
+                # 검색 실패 여부와 관계없이 명시적인 대화 조건은 보존한다.
+                if memory_available:
+                    try:
+                        memory_service.save_turn_memory(
+                            user_id=user_id,
+                            session_id=session_id,
+                            user_request=request_text,
+                            previous_context=memory_state.get("context", {}),
+                            answer=f"상품 검색 실패: {error_message}",
+                            search_context=turn_search_context,
+                            last_plan_id=memory_state.get("last_plan_id"),
+                        )
+                    except Exception:
+                        pass
+
                 finish_agent_run(
                     run_id,
                     status="failed",

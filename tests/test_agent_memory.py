@@ -211,3 +211,120 @@ def test_two_turns_reuse_memory_and_preserve_budget(tmp_path, monkeypatch):
     assert "베이지 니트" in second_answer
     assert "베이지 코트" not in second_answer
     assert "100,000원 이하" in second_answer
+
+
+def test_failed_search_still_saves_conversation_memory(
+    tmp_path,
+    monkeypatch,
+):
+    """상품 검색 실패 시에도 사용자 요청 조건을 Memory에 저장한다."""
+    import json
+
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from app.agents import fashion_agent
+    from app.repositories import event_repository, memory_repository
+
+    db_path = tmp_path / "failed_search_memory.db"
+
+    monkeypatch.setattr(
+        event_repository,
+        "get_database_path",
+        lambda: db_path,
+    )
+    monkeypatch.setattr(
+        memory_repository,
+        "get_database_path",
+        lambda: db_path,
+    )
+
+    monkeypatch.setattr(
+        fashion_agent,
+        "start_agent_run",
+        lambda *args, **kwargs: "failed-run",
+    )
+    monkeypatch.setattr(
+        fashion_agent,
+        "activate_agent_run",
+        lambda run_id: None,
+    )
+    monkeypatch.setattr(
+        fashion_agent,
+        "deactivate_agent_run",
+        lambda tokens: None,
+    )
+    monkeypatch.setattr(
+        fashion_agent,
+        "finish_agent_run",
+        lambda *args, **kwargs: None,
+    )
+
+    class FakeAgent:
+        def invoke(self, payload, config=None):
+            call_id = "failed-search-1"
+
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "search_products",
+                                "args": {
+                                    "keyword": "미니멀",
+                                    "gender": "all",
+                                    "max_price": 100000,
+                                    "color": "블랙",
+                                    "sort": "popular",
+                                    "limit": 10,
+                                },
+                                "id": call_id,
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content=json.dumps({
+                            "ok": False,
+                            "error": {
+                                "code": "NO_RESULT",
+                                "message": "조건에 맞는 상품을 찾지 못했습니다.",
+                            },
+                        }, ensure_ascii=False),
+                        tool_call_id=call_id,
+                        name="search_products",
+                    ),
+                    AIMessage(content="검색 결과가 없습니다."),
+                ]
+            }
+
+    monkeypatch.setattr(
+        fashion_agent,
+        "build_fashion_agent",
+        lambda: FakeAgent(),
+    )
+
+    result = fashion_agent.run_fashion_agent(
+        user_request=(
+            "서울에서 10만 원 이하로 미니멀한 출근룩 추천해 줘. "
+            "검은색 위주로."
+        ),
+        user_id="f3010-test-user",
+        session_id="failed-session-001",
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "NO_RESULT"
+
+    memory = memory_repository.get_memory(
+        "f3010-test-user",
+        "failed-session-001",
+    )
+
+    assert memory is not None
+    assert memory["context"]["max_price"] == 100000
+    assert memory["context"]["color"] == "블랙"
+    assert memory["context"]["location"] == "서울"
+    assert memory["context"]["occasion"] == "출근"
+    assert memory["recent_summary"] is not None
+    assert "검색 실패" in memory["recent_summary"]

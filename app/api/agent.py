@@ -43,7 +43,7 @@ def run_agent(request: AgentRunRequest):
     code = error.get("code", "AGENT_ERROR")
 
     status_codes = {
-        "BAD_ARGUMENT": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "BAD_ARGUMENT": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "NO_RESULT": status.HTTP_404_NOT_FOUND,
         "INVALID_KEY": status.HTTP_503_SERVICE_UNAVAILABLE,
         "API_LIMIT": status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -88,7 +88,7 @@ def replan_agent(plan_id: int, request: ReplanRequest):
     code = error.get("code", "REPLAN_ERROR")
 
     status_codes = {
-        "BAD_ARGUMENT": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "BAD_ARGUMENT": status.HTTP_422_UNPROCESSABLE_CONTENT,
         "PLAN_NOT_FOUND": status.HTTP_404_NOT_FOUND,
         "REPLAN_LIMIT": status.HTTP_409_CONFLICT,
         "INVALID_KEY": status.HTTP_503_SERVICE_UNAVAILABLE,
