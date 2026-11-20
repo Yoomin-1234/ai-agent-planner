@@ -1,131 +1,272 @@
-# AI 패션 통합 플래너
+# 👗 AI 기반 날씨·취향 맞춤형 코디 추천 에이전트 (AI Fashion Planner)
 
-자연어로 입력한 상황·예산·스타일·상품 조건을 바탕으로 패션 상품 후보와 코디 조합을 제안하고, 계획을 저장·관리하는 AI Agent 프로젝트입니다.
+## 📌 프로젝트 소개
 
-## 프로젝트 원칙
+본 프로젝트는 **AI Agent와 외부 API를 활용하여 사용자의 취향, 예산, 상황 및 날씨를 종합적으로 고려한 코디를 추천하는 서비스**입니다.
 
-- 일반 상품 추천에서는 API.SH Musinsa 상품 API만 기본 경로로 사용합니다.
-- 사용자가 날씨 고려를 명시한 경우에만 Kakao Local로 좌표를 확인하고 Open-Meteo 예보를 조회합니다.
-- 날짜·지역이 없는 날씨 요청은 해당 정보만 사용자에게 질문한 뒤 조회합니다.
-- 예산·품절·사이즈는 가능한 한 코드로 검증하며, 확인할 수 없는 정보는 추정하지 않습니다.
-- 무신사 상품 이미지, 상세 설명 HTML, 리뷰 원문은 직접 표시하지 않습니다. 상품의 사실 정보와 검증된 원본 상품 링크를 사용합니다.
-- API 키는 `.env`에만 보관하며 프론트엔드나 Git에 올리지 않습니다.
+사용자가 자연어로 코디를 요청하면 AI Agent가 요청 내용을 분석하고, 필요한 도구를 선택하여 상품 검색, 지역 정보 확인, 날씨 조회 등의 작업을 수행합니다.
 
-## 현재 구현 상태
+상품 정보는 API.SH의 무신사 상품 검색 API를 활용하며, Kakao Local API를 통해 사용자의 위치를 확인하고 Open-Meteo API를 통해 현재 날씨 정보를 가져옵니다.
 
-| 단계 | 내용 | 상태 |
+또한 사용자의 이전 대화 내용을 기억하여 후속 요청에 반영하고, 추천 결과를 코디 플랜으로 저장하거나 기존 조건을 변경하여 재계획할 수 있도록 구현했습니다.
+
+에이전트 실행 과정에서 발생하는 이벤트와 Tool 호출 이력을 데이터베이스에 저장하여 사용자가 실행 과정과 결과를 확인할 수 있도록 구성했습니다.
+
+---
+
+## 🛠️ 기술 스택 (Tech Stack)
+
+- **Language**: Python
+- **Framework**: FastAPI
+- **Frontend**: HTML, CSS, JavaScript
+- **Database**: SQLite3
+- **AI Agent**: LLM 기반 Agent
+- **External API**:
+  - API.SH (무신사 상품 검색)
+  - Kakao Local API (지역 및 위치 정보 검색)
+  - Open-Meteo API (날씨 정보 조회)
+- **API Testing**: pytest, FastAPI TestClient
+- **Development Tool**: Visual Studio Code
+- **Version Control**: Git, GitHub, GitLab
+
+---
+
+## 📂 디렉토리 구조 (Directory Structure)
+
+```plaintext
+ai-agent-planner/
+├── app/
+│   ├── agents/
+│   │   └── fashion_agent.py       # AI 코디 추천 에이전트
+│   ├── api/
+│   │   ├── agent.py               # 에이전트 실행 및 재계획 API
+│   │   ├── events.py              # 실행 이벤트 조회 및 관리 API
+│   │   ├── plans.py               # 코디 플랜 CRUD API
+│   │   └── tools.py               # Tool 목록 조회 API
+│   ├── repositories/
+│   │   ├── event_repository.py    # 실행 이벤트 저장 및 조회
+│   │   ├── memory_repository.py   # 대화 메모리 저장 및 조회
+│   │   └── plan_repository.py     # 코디 플랜 데이터 관리
+│   ├── schemas/
+│   │   ├── agent.py               # 에이전트 요청 및 응답 스키마
+│   │   ├── plan.py                # 코디 플랜 스키마
+│   │   └── replan.py              # 재계획 요청 및 응답 스키마
+│   ├── services/
+│   │   ├── event_service.py       # 에이전트 실행 이벤트 처리
+│   │   ├── memory_service.py      # 대화 기억 관리
+│   │   ├── plan_service.py        # 코디 플랜 비즈니스 로직
+│   │   └── replan_service.py      # 조건 변경 및 재계획 처리
+│   └── tools/
+│       ├── base.py                # Tool 공통 구조
+│       ├── musinsa.py              # 상품 검색 및 상세 조회
+│       ├── kakao_local.py          # 지역 정보 조회
+│       ├── open_meteo.py           # 날씨 정보 조회
+│       └── registry.py             # Tool 등록 및 관리
+├── frontend/
+│   └── index.html                 # 웹 프론트엔드
+├── tests/                         # 테스트 코드
+├── .env                           # 외부 API 키 및 환경 변수
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 👤 프로젝트 
+
+
+- **F3001**: Agent가 사용할 수 있는 Tool 목록 및 기능 정의
+- **F3002~F3004**: 에이전트 실행 및 요청 처리 구조 구현
+- **F3005**: 사용자 자연어 요청 분석 및 조건 추출
+- **F3006**: 요청에 따른 Tool 선택 및 실행 흐름 구성
+- **F3007**: 외부 API 연동 및 Tool 통합
+- **F3008**: 상품 검색 결과의 사용자 조건 반영
+- **F3009**: 기존 추천 결과를 바탕으로 한 재계획 기능
+- **F3010**: 대화 맥락 및 사용자 조건 기억 기능
+- **F3011**: 최종 코디 추천 결과 생성
+- **F3012~F3013**: Agent 실행 이벤트 및 Tool 호출 로그 관리
+- **F3014**: 에이전트 실행 이력 조회 및 관리 API
+- **F3015~F3016**: 코디 플랜 데이터 관리 및 CRUD 기능
+- **F3017**: API 문서 및 엔드포인트 구성
+- **F3018~F3019**: 프론트엔드 UI 및 실행 상태 표시
+
+### **1. 프로젝트 구조 설계 및 Agent 구현 (F3001~F3006)**
+
+AI Agent가 사용자의 자연어 요청을 이해하고 적절한 도구를 활용할 수 있도록 전체 실행 구조를 설계했습니다.
+
+사용자가 입력한 요청에서 상품 종류, 성별, 가격, 색상, 지역, 착용 상황 등의 조건을 파악하고, 요청에 필요한 Tool을 선택하여 실행하도록 구성했습니다.
+
+주요 구현 내용은 다음과 같습니다.
+
+- Agent 실행을 담당하는 `fashion_agent.py` 구현
+- 사용자 요청을 기반으로 상품 검색 조건 분석
+- 상품 검색, 위치 확인, 날씨 조회 등 Tool 실행 구조 구현
+- Tool별 입력값 및 출력값 관리
+- 실행 결과에 따른 성공 및 실패 처리
+- 외부 API 호출 결과를 Agent 실행 흐름에 연결
+
+### **2. 외부 API 연동 및 상품 검색 기능 구현 (F3007~F3008)**
+
+외부 서비스를 활용하여 실제 상품 정보와 날씨 및 위치 정보를 가져올 수 있도록 Tool을 구현했습니다.
+
+각 외부 API의 역할을 분리하고 공통 Tool 구조를 통해 Agent에서 사용할 수 있도록 구성했습니다.
+
+- **Musinsa Tool**
+  - 무신사 상품 검색
+  - 상품명 및 상품 정보 조회
+  - 성별, 가격 등의 검색 조건 적용
+- **Kakao Local Tool**
+  - 사용자 요청 지역 확인
+  - 지역명 기반 위치 정보 조회
+- **Open-Meteo Tool**
+  - 지역의 날씨 정보 조회
+  - 기온 및 체감온도 등 날씨 정보 활용
+- **Tool Registry**
+  - Agent에서 사용할 Tool 등록
+  - Tool 이름을 기반으로 실행 대상 관리
+
+상품 검색 결과에 사용자의 조건을 반영하고, 날씨 정보를 코디 추천에 활용하도록 구성했습니다.
+
+### **3. 재계획 및 대화 기억 기능 구현 (F3009~F3010)**
+
+사용자가 최초 요청 이후 추가 조건을 입력하더라도 이전 대화의 맥락을 유지할 수 있도록 대화 기억 기능을 구현했습니다.
+
+또한 기존 추천 결과에서 조건이 변경되면 새로운 조건을 반영하여 코디를 다시 구성할 수 있도록 재계획 기능을 구현했습니다.
+
+- **대화 기억 기능**
+  - 사용자별 대화 맥락 저장
+  - 이전 요청의 상품 종류 및 조건 기억
+  - 후속 요청에서 기존 조건 유지
+  - 새로운 조건이 입력되면 해당 조건 갱신
+- **재계획 기능**
+  - 기존 코디 플랜을 기반으로 조건 변경
+  - 변경된 조건을 반영한 재추천
+  - 재계획 횟수 관리
+  - 재계획 실행 이벤트 기록
+
+이를 통해 단일 요청에 대한 상품 검색뿐 아니라 여러 차례의 대화를 통한 코디 추천이 가능하도록 구성했습니다.
+
+### **4. Agent 실행 이벤트 및 로그 관리 기능 구현 (F3012~F3014)**
+
+Agent의 실행 과정과 Tool 호출 내역을 추적할 수 있도록 이벤트 저장 구조를 구현했습니다.
+
+에이전트 실행 시작과 종료, Tool 호출 시작 및 완료, 플랜 저장 및 재계획 등의 이벤트를 기록하고 데이터베이스에 저장하도록 구성했습니다.
+
+주요 구현 내용은 다음과 같습니다.
+
+- Agent 실행 이벤트 기록
+- Tool 호출 시작 및 완료 상태 기록
+- 실행 성공 및 실패 상태 관리
+- 오류 코드 및 실행 시간 기록
+- 실행 ID 및 세션 ID 기반 이벤트 구분
+- 최근 실행 이력 조회
+- 특정 실행의 상세 이벤트 조회
+- 실행 이력 삭제 기능
+
+이를 통해 사용자가 Agent의 실행 결과뿐 아니라 내부 Tool 호출 과정도 확인할 수 있도록 구현했습니다.
+
+### **5. 코디 플랜 관리 기능 구현 (F3015~F3016)**
+
+추천받은 코디를 저장하고 이후 다시 확인하거나 수정할 수 있도록 코디 플랜 관리 기능을 구현했습니다.
+
+코디 플랜의 생성, 목록 조회, 상세 조회, 수정, 삭제 기능을 REST API로 구성했습니다.
+
+- 코디 플랜 생성
+- 사용자별 코디 플랜 목록 조회
+- 특정 코디 플랜 상세 조회
+- 코디 플랜 정보 수정
+- 코디 플랜 삭제
+- 플랜 상태 관리
+- 상품 정보 및 검색 맥락 저장
+- 재계획 횟수 관리
+
+또한 FastAPI의 TestClient를 활용하여 생성, 조회, 수정, 삭제 및 삭제 후 조회 결과를 검증했습니다.
+
+### **6. API 문서 및 프론트엔드 구현 (F3017~F3019)**
+
+사용자가 AI Agent를 직접 이용하고 실행 결과를 확인할 수 있도록 웹 프론트엔드를 구현했습니다.
+
+FastAPI를 통해 백엔드 API와 프론트엔드를 연결하고, 주요 기능을 탭 형태로 구성했습니다.
+
+- **대화 및 코디 추천**
+  - 사용자 ID 및 대화 세션 표시
+  - 자연어 기반 코디 요청 입력
+  - Agent 응답 표시
+  - 처리 중 상태 표시
+- **내 코디 플랜**
+  - 저장된 코디 플랜 확인
+  - 플랜 정보 관리
+- **실행 기록**
+  - Agent 실행 이력 확인
+  - Tool 호출 과정 및 상태 표시
+  - 이벤트 로그 삭제 기능
+- **API 문서**
+  - Swagger UI 제공
+  - OpenAPI 스키마 제공
+
+실행 중 상태와 Tool 호출 이벤트를 화면에 표시하여 사용자가 요청 처리 과정을 확인할 수 있도록 구성했습니다.
+
+---
+
+## 🔗 주요 API 엔드포인트 (API Endpoints)
+
+RESTful 설계를 고려하여 기능별 API를 분리하고 HTTP Method에 따라 요청을 처리하도록 구성했습니다.
+
+| Method | URL | 기능 |
 |---|---|---|
-| 0 | 프로젝트 구조, FastAPI 진입점, 환경변수 샘플 | 완료 |
-| 1 | F3001 공통 Tool 규격/레지스트리/오류 응답 기반 | 기반 구현 완료 (실제 API Tool 등록은 다음 단계) |
-| 2 | API.SH Musinsa 검색·상세 Tool | 다음 작업 |
-| 3 | Kakao Local 및 Open-Meteo 선택 Tool | 예정 |
-| 4 | LangGraph 메인 Agent와 제약 판단/재계획 | 예정 |
-| 5 | 이벤트 발행 및 로깅 Agent | 예정 |
-| 6 | SQLite·계획 CRUD·로그 API | 예정 |
-| 7 | 대화/계획/로그 프론트엔드 | 예정 |
+| GET | `/health` | 서버 상태 확인 |
+| GET | `/api/tools` | 사용 가능한 Tool 목록 조회 |
+| POST | `/api/agent/run` | AI Agent 실행 및 코디 추천 |
+| POST | `/api/agent/replan/{plan_id}` | 기존 코디 플랜 재계획 |
+| GET | `/api/events` | 에이전트 실행 이벤트 목록 조회 |
+| GET | `/api/events/runs/{run_id}` | 특정 실행의 상세 이벤트 조회 |
+| GET | `/api/plans` | 코디 플랜 목록 조회 |
+| POST | `/api/plans` | 코디 플랜 생성 |
+| GET | `/api/plans/{plan_id}` | 코디 플랜 상세 조회 |
+| PATCH | `/api/plans/{plan_id}` | 코디 플랜 수정 |
+| DELETE | `/api/plans/{plan_id}` | 코디 플랜 삭제 |
 
-제공된 `day01_fastapi` 원본 학습 코드는 `examples/day01_fastapi/`에 보존했습니다. 실제 앱은 새 `app/` 패키지에서 개발합니다.
+※ 실제 API의 세부 요청 및 응답 형식은 Swagger 문서(`/docs`)에서 확인할 수 있습니다.
 
-## 개발 환경
+---
 
-- Python 3.10 이상
-- FastAPI / Uvicorn
-- SQLite (계획·로그 저장 단계에서 적용)
-- HTML / CSS / JavaScript
+## 📌 프로젝트 결과
 
-## 실행 방법
+- FastAPI 기반 AI Agent 서비스 구축
+- 자연어 요청을 활용한 코디 추천 기능 구현
+- 외부 상품 검색 API 연동
+- Kakao Local API를 활용한 지역 정보 조회
+- Open-Meteo API를 활용한 날씨 정보 조회
+- Agent Tool 등록 및 실행 구조 구현
+- 사용자 조건을 반영한 상품 검색
+- 대화 맥락 기억 및 후속 요청 처리
+- 기존 코디 플랜 기반 재계획 기능 구현
+- Agent 실행 이벤트 및 Tool 호출 로그 저장
+- 코디 플랜 생성·조회·수정·삭제 CRUD 구현
+- Swagger 및 OpenAPI 문서 제공
+- HTML, CSS, JavaScript 기반 프론트엔드 구현
+- pytest를 활용한 테스트 진행
 
-```bash
-# 1) 프로젝트 루트에서 가상환경 생성
-python -m venv .venv
+---
 
-# macOS / Linux
-source .venv/bin/activate
+## 📌 소감 및 정리
 
-# Windows PowerShell
-# .venv\Scripts\Activate.ps1
+- **소감 및 정리**
+  - 이번 프로젝트를 통해 단순한 API 서버 구현을 넘어 AI Agent가 외부 도구를 선택하고 실행하는 전체 흐름을 직접 설계하고 구현할 수 있었습니다. 특히 사용자의 자연어 요청을 실제 상품 검색 조건으로 변환하고, 외부 API의 결과를 다시 추천 과정에 연결하는 작업을 통해 Agent 기반 서비스의 구조를 이해할 수 있었습니다.
+  - 상품 검색 API, 지역 정보 API, 날씨 API를 각각 독립적인 Tool로 구현하면서 외부 서비스의 응답 형식과 오류를 관리하는 것이 중요하다는 점을 배웠습니다. 또한 API마다 입력 조건과 반환 데이터가 다르기 때문에 공통 실행 구조를 설계하는 과정에서 코드의 재사용성과 유지보수성을 고려하게 되었습니다.
+  - 대화 기억과 재계획 기능을 구현하면서 AI 서비스에서는 최초 요청에 대한 응답뿐 아니라 이전 대화의 맥락을 유지하는 것이 중요하다는 점을 체감했습니다. 사용자가 조건을 추가하거나 변경했을 때 기존 조건을 적절히 유지하면서 새로운 결과를 제공하는 과정이 특히 인상적이었습니다.
+  - 마지막으로 Agent 실행 이벤트와 Tool 호출 로그를 저장하고 화면에 표시하면서 서비스의 결과뿐 아니라 실행 과정을 추적하고 관리하는 기능도 중요하다는 점을 배웠습니다. 앞으로는 예외 상황에 대한 검증과 실행 과정의 관찰 가능성을 더욱 강화하여 안정적이고 확장 가능한 AI Agent 서비스를 개발하고 싶습니다.
 
-# 2) 의존성 설치
-pip install -r requirements.txt
+---
 
-# 3) 환경변수 파일 생성
-# macOS / Linux
-cp .env.example .env
-# Windows PowerShell
-# Copy-Item .env.example .env
+**개발 과정에서 고려한 사항**
 
-# 4) 서버 실행
-uvicorn app.main:app --reload
-```
+- Agent, API, Service, Repository, Tool 계층을 분리하여 기능별 책임 구분
+- 외부 API별 Tool 모듈 분리 및 공통 실행 구조 적용
+- Pydantic Schema를 활용한 요청 및 응답 데이터 검증
+- SQLite를 활용한 실행 이벤트, 대화 기억 및 코디 플랜 데이터 관리
+- pytest 및 FastAPI TestClient를 활용한 API 테스트
+- GitHub 및 GitLab을 활용한 버전 관리
+- Swagger UI를 활용한 API 문서 확인
 
-서버 실행 후 다음 경로를 확인합니다.
-
-- 상태 확인: <http://localhost:8000/health>
-- Tool 명세: <http://localhost:8000/api/tools>
-- Swagger UI: <http://localhost:8000/docs>
-
-## 테스트
-
-```bash
-python -m unittest discover -s tests -v
-python -m compileall -q app tests
-```
-
-## GitLab + GitHub 동시 관리
-
-저장소 remote 이름은 `gitlab`, `github`로 구분합니다. **이미 두 저장소 중 하나를 clone한 작업 폴더가 있다면 새로 `git init`하지 마세요.** 기존 `.git` 이력을 그대로 사용해야 합니다.
-
-### A. 이미 clone한 저장소가 있는 경우 (권장)
-
-1. ZIP 압축을 푼 뒤, 프로젝트 안의 파일과 폴더를 기존 clone 폴더의 루트로 복사합니다. 기존 `.git/` 폴더는 덮어쓰거나 삭제하지 않습니다.
-2. 기존 remote를 확인하고 없는 remote만 추가합니다.
-
-```bash
-git remote -v
-# 없는 경우에만 추가
-git remote add gitlab https://lab.ssafy.com/1018ym/ai-core-pjt.git
-git remote add github https://github.com/Yoomin-1234/ai-agent-planner.git
-```
-
-### B. 기존 clone이 없고 ZIP으로 새 작업 폴더를 시작하는 경우
-
-```bash
-git init -b main
-git config user.name "본인 Git 이름"
-git config user.email "본인 Git 이메일"
-git remote add gitlab https://lab.ssafy.com/1018ym/ai-core-pjt.git
-git remote add github https://github.com/Yoomin-1234/ai-agent-planner.git
-```
-
-원격 저장소가 이미 README 등의 커밋을 가지고 있는지 확인한 뒤 최초 이력을 통합합니다. 처음부터 무조건 force push하지 않습니다.
-
-### 기능별 커밋 및 양쪽 push
-
-각 기능을 구현하고 테스트를 통과시킨 뒤에는 기능별 커밋을 만들고 양쪽 remote로 push합니다.
-
-```bash
-# 변경사항 확인
-git status
-
-# 아래 스크립트가 변경사항을 커밋한 뒤 두 원격 저장소의 main으로 push
-bash scripts/publish.sh "feat(tools): add Musinsa product search and detail tools"
-```
-
-스크립트를 사용하지 않을 때는 아래 명령을 직접 실행해도 됩니다.
-
-```bash
-git add app/tools/musinsa.py tests/test_musinsa_tools.py
-git diff --cached --check
-git commit -m "feat(tools): add Musinsa product search and detail tools"
-git push gitlab HEAD:main
-git push github HEAD:main
-```
-
-원격 저장소에 이미 별도 커밋(예: README)이 있으면 최초 push 전에 원격 이력을 먼저 확인하고 통합해야 합니다. 최초 push가 non-fast-forward로 거절되면 `git fetch gitlab github`로 이력을 확인한 뒤 각 원격 이력을 안전하게 통합하세요. 무조건 `--force`를 사용하지 않습니다. 인증·네트워크 연결이 필요한 push는 개발 PC의 Git 자격 증명으로 수행합니다.
-
-## 보안 체크
-
-- `.env`는 커밋하지 않습니다.
-- `.env.example`에는 변수명만 두고 실제 키를 적지 않습니다.
-- API 원문 오류·인증 헤더·키를 화면이나 실행 로그에 노출하지 않습니다.
-- 상품 상세에서 확인되지 않은 소재·핏·방수·사이즈 재고를 추측하지 않습니다.
