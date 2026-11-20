@@ -27,18 +27,33 @@ from ..tools.base import fail, ok
 SYSTEM_PROMPT = """
 너는 AI Fashion Planner의 패션 상품 탐색 전문 Agent다.
 
-사용자의 요청을 분석하고, 필요한 경우 등록된 Musinsa Tool을 사용한다.
+사용자의 요청을 분석하고, 필요한 경우 등록된 Tool을 사용한다.
 
 [사용 가능한 Tool]
-1. search_products
+1. resolve_location
+   - 지역명이나 주소를 검색하여 위도와 경도를 확인한다.
+2. get_weather
+   - 위도와 경도로 현재 날씨와 일별 예보를 조회한다.
+3. search_products
    - 키워드, 카테고리, 브랜드, 성별, 가격, 색상, 사이즈 조건으로 상품 검색
-2. get_product_detail
+4. get_product_detail
    - 상품 ID로 특정 상품의 상세 정보 조회
 
-[Tool 사용 규칙]
+[날씨 관련 요청 규칙]
+- 날씨, 기온, 비, 눈, 바람, 체감온도 또는 날씨에 맞는 코디를 요청하면 날씨 Tool을 사용한다.
+- 패션 추천에 날씨가 필요한 경우 상품 검색 전에 날씨를 먼저 조회한다.
+- 지역이 명시되면 해당 지역명으로 resolve_location을 호출한다.
+- 지역이 명시되지 않았다면 현재 대화 Memory에 저장된 지역을 사용한다.
+- 사용할 수 있는 지역 정보가 없으면 사용자에게 지역을 질문한다. 임의로 지역을 추측하지 않는다.
+- resolve_location 성공 시 첫 번째 검색 결과의 위도와 경도를 get_weather에 전달한다.
+- 오늘 날씨는 forecast_days=1, 내일 예보까지 필요하면 forecast_days=2로 조회한다.
+- 날씨 조회에 실패하면 날씨를 추측하지 않는다.
+- 날씨만 질문한 경우에는 상품 검색을 하지 않는다.
+- 날씨 기반 코디 요청이라면 조회한 기온, 체감온도, 강수 및 바람을 고려하여 적절한 의류를 검색한다.
+
+[상품 검색 규칙]
 - 새로운 상품을 찾는 요청에는 search_products를 사용한다.
-- 특정 상품의 소재, 핏, 옵션, 상세 가격 등을 확인하려면
-  get_product_detail을 사용한다.
+- 특정 상품의 소재, 핏, 옵션, 상세 가격 등을 확인하려면 get_product_detail을 사용한다.
 - 검색 결과에 상품 ID가 있으면 해당 ID를 상세 조회에 활용할 수 있다.
 - 사용자의 조건을 가능한 한 검색 인자로 변환한다.
 - 니트, 코트, 셔츠, 원피스 등 자연어 의류 종류는 keyword에 포함한다.
@@ -51,7 +66,7 @@ SYSTEM_PROMPT = """
 - 조건이 불명확하면 임의로 확정하지 않는다.
 
 [정확성 규칙]
-- Tool 응답에 없는 상품 정보를 만들어내지 않는다.
+- Tool 응답에 없는 상품 및 날씨 정보를 만들어내지 않는다.
 - 소재나 핏 정보가 없으면 확인되지 않았다고 설명한다.
 - 옵션 목록만으로 실제 구매 가능 재고나 사이즈별 재고를 확정하지 않는다.
 - 품절 여부는 API 응답의 상태를 기준으로 설명한다.
@@ -150,6 +165,32 @@ def get_product_detail_agent_tool(product_id: str) -> dict:
         product_id=product_id,
     )
 
+@tool("resolve_location")
+def resolve_location_agent_tool(query: str) -> dict:
+    """지역명이나 주소를 검색하여 위도와 경도를 확인한다."""
+
+    return execute_tool_with_event(
+        "resolve_location",
+        query=query,
+    )
+
+
+@tool("get_weather")
+def get_weather_agent_tool(
+    latitude: float,
+    longitude: float,
+    forecast_days: int = 1,
+) -> dict:
+    """좌표를 기준으로 현재 날씨와 일별 예보를 조회한다."""
+
+    return execute_tool_with_event(
+        "get_weather",
+        latitude=latitude,
+        longitude=longitude,
+        forecast_days=forecast_days,
+    )
+
+
 
 def build_fashion_agent():
     """LLM과 Musinsa Tools를 연결한 LangGraph Agent를 생성한다."""
@@ -177,6 +218,8 @@ def build_fashion_agent():
         tools=[
             search_products_agent_tool,
             get_product_detail_agent_tool,
+            resolve_location_agent_tool,
+            get_weather_agent_tool,
         ],
         system_prompt=SYSTEM_PROMPT,
         name="fashion_planner",
@@ -217,6 +260,98 @@ def _decode_tool_result(content):
             return None
 
     return None
+
+def _format_weather_summary(messages: list) -> str | None:
+    """Agent가 조회한 지역과 날씨 정보를 검증하여 요약한다."""
+
+    location_result = None
+    weather_result = None
+
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+
+        result = _decode_tool_result(message.content)
+
+        if message.name == "resolve_location":
+            location_result = result
+        elif message.name == "get_weather":
+            weather_result = result
+
+    if location_result is not None and location_result.get("ok") is False:
+        return "지역 좌표를 확인하지 못해 날씨 정보를 조회하지 못했습니다."
+
+    if weather_result is None:
+        if location_result is not None:
+            return "날씨 정보를 조회하지 못했습니다."
+        return None
+
+    if weather_result.get("ok") is not True:
+        return "날씨 정보를 조회하지 못해 날씨 기반 추천에 반영하지 못했습니다."
+
+    data = weather_result.get("data", {})
+    current = data.get("current", {})
+
+    if not isinstance(current, dict):
+        return None
+
+    location_name = None
+
+    if location_result and location_result.get("ok") is True:
+        location_data = location_result.get("data", {})
+        results = location_data.get("results", [])
+
+        if isinstance(results, list) and results:
+            if isinstance(results[0], dict):
+                location_name = results[0].get("address_name")
+
+    lines = ["[날씨 조회 정보]"]
+
+    if location_name:
+        lines.append(f"- 지역: {location_name}")
+
+    if current.get("time"):
+        lines.append(f"- 기준 시각: {current['time']}")
+
+    if current.get("weather_description"):
+        lines.append(f"- 날씨: {current['weather_description']}")
+
+    temperature = current.get("temperature_c")
+    if isinstance(temperature, (int, float)) and not isinstance(temperature, bool):
+        lines.append(f"- 현재 기온: {temperature:g}°C")
+
+    apparent = current.get("apparent_temperature_c")
+    if isinstance(apparent, (int, float)) and not isinstance(apparent, bool):
+        lines.append(f"- 체감온도: {apparent:g}°C")
+
+    precipitation = current.get("precipitation_mm")
+    if isinstance(precipitation, (int, float)) and not isinstance(precipitation, bool):
+        lines.append(f"- 강수량: {precipitation:g}mm")
+
+    wind = current.get("wind_speed_kmh")
+    if isinstance(wind, (int, float)) and not isinstance(wind, bool):
+        lines.append(f"- 풍속: {wind:g}km/h")
+
+    daily = data.get("daily", [])
+
+    if isinstance(daily, list) and daily and isinstance(daily[0], dict):
+        forecast = daily[0]
+        minimum = forecast.get("temperature_min_c")
+        maximum = forecast.get("temperature_max_c")
+
+        if (
+            isinstance(minimum, (int, float))
+            and isinstance(maximum, (int, float))
+        ):
+            lines.append(f"- 일별 최저/최고 기온: {minimum:g}°C / {maximum:g}°C")
+
+        probability = forecast.get("precipitation_probability_max_percent")
+
+        if isinstance(probability, (int, float)):
+            lines.append(f"- 최대 강수 확률: {probability:g}%")
+
+    return "\n".join(lines)
+
 
 
 def _extract_max_price(user_request: str):
@@ -695,6 +830,11 @@ def run_fashion_agent(
                     "max_price"
                 ),
             )
+
+            # 날씨 기반 추천이라면 실제 조회 결과를 함께 제공한다.
+            weather_summary = _format_weather_summary(messages)
+            if weather_summary:
+                answer += "\n\n" + weather_summary
 
             if save_requested:
                 if not verified_items:
