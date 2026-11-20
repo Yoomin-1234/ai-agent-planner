@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Fashion Planner</title>
+  <style>
+    :root {
+      font-family: Pretendard, "Noto Sans KR", Arial, sans-serif;
+      color: #242424;
+      background: #f6f6f3;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header {
+      background: #20231f;
+      color: white;
+      padding: 19px max(22px, calc((100% - 1200px)/2));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 21px; margin: 0; letter-spacing: -.5px; }
+    header span { color: #c6d0bd; font-size: 12px; }
+    nav {
+      display: flex;
+      gap: 8px;
+      padding: 14px max(22px, calc((100% - 1200px)/2));
+      background: white;
+      border-bottom: 1px solid #e5e5df;
+    }
+    button, input, textarea, select { font: inherit; }
+    button {
+      cursor: pointer;
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 15px;
+      background: #252a24;
+      color: white;
+      font-weight: 650;
+    }
+    button:disabled { opacity: .5; cursor: wait; }
+    button.secondary { background: #e9ebe5; color: #30342e; }
+    button.danger { background: #fff0ed; color: #a63725; }
+    button.active { background: #647b50; color: white; }
+    nav button { background: transparent; color: #666; }
+    nav button.active { background: #e9eee4; color: #34482c; }
+    main {
+      max-width: 1200px;
+      margin: 26px auto;
+      padding: 0 20px 50px;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    h2 { margin: 0; font-size: 23px; }
+    h3 { margin: 0 0 13px; font-size: 16px; }
+    .muted { color: #777; font-size: 13px; }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel {
+      background: white;
+      border: 1px solid #e8e8e2;
+      border-radius: 15px;
+      padding: 20px;
+      box-shadow: 0 3px 12px #1d281008;
+      min-width: 0;
+    }
+    .field { display: grid; gap: 6px; margin-bottom: 12px; }
+    label { font-size: 13px; font-weight: 650; color: #555; }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid #deded7;
+      background: #fff;
+      border-radius: 9px;
+      padding: 11px 12px;
+      color: #222;
+    }
+    textarea { resize: vertical; min-height: 94px; }
+    .row { display: flex; gap: 9px; align-items: center; }
+    .row > * { min-width: 0; }
+    .messages {
+      min-height: 250px;
+      max-height: 430px;
+      overflow: auto;
+      background: #fafaf8;
+      border: 1px solid #eee;
+      border-radius: 11px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    .bubble {
+      max-width: 94%;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin: 8px 0;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+    .bubble.user { margin-left: auto; background: #e8eee2; }
+    .bubble.assistant { background: white; border: 1px solid #e8e8e2; }
+    .status {
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: #f0f3ed;
+      color: #526447;
+      font-size: 13px;
+      margin: 10px 0;
+    }
+    .status.error { background: #fff0ed; color: #a63725; }
+    .timeline { display: grid; gap: 10px; }
+    .event {
+      border: 1px solid #e8e8e2;
+      border-left: 4px solid #aab39f;
+      border-radius: 9px;
+      padding: 11px 12px;
+      background: #fff;
+      min-width: 0;
+    }
+    .event.failed { border-left-color: #d65b49; background: #fffafa; }
+    .event.replanned { border-left-color: #d29a36; background: #fffaf0; }
+    .event.success { border-left-color: #6d9660; }
+    .event strong { font-size: 13px; }
+    .event p { margin: 5px 0 0; font-size: 12px; color: #777; overflow-wrap: anywhere; }
+    .event pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      color: #555;
+      margin: 7px 0 0;
+    }
+    .cards { display: grid; gap: 10px; }
+    .plan-card, .run-card {
+      border: 1px solid #e8e8e2;
+      border-radius: 11px;
+      background: white;
+      padding: 14px;
+      cursor: pointer;
+      text-align: left;
+      color: #222;
+      width: 100%;
+    }
+    .plan-card:hover, .run-card:hover { border-color: #93a486; }
+    .plan-card strong, .run-card strong { display: block; margin-bottom: 6px; }
+    .plan-detail { margin-top: 16px; }
+    .hidden { display: none !important; }
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 20px;
+      background: #edf0e9;
+      color: #526447;
+      margin-left: 5px;
+    }
+    .empty {
+      color: #888;
+      padding: 24px 10px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .top-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    @media(max-width: 800px) {
+      .workspace { grid-template-columns: 1fr; }
+      main { margin-top: 18px; }
+    }
+    @media(max-width: 480px) {
+      .top-fields { grid-template-columns: 1fr; }
+      .panel { padding: 15px; }
+      nav { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>AI Fashion Planner</h1>
+    <span>날씨와 취향을 반영하는 AI 코디 플래너</span>
+  </div>
+  <span><a href="/docs" style="color:#dce6d3">API 문서 열기 ↗</a></span>
+</header>
+
+<nav>
+  <button class="active" data-view="chat">대화 및 코디 추천</button>
+  <button data-view="plans">내 코디 플랜</button>
+  <button data-view="logs">실행 기록</button>
+</nav>
+
+<main>
+  <section id="chatView" class="view active">
+    <div class="section-title">
+      <div>
+        <h2>AI 코디 상담</h2>
+        <p class="muted">상품 검색, 날씨 기반 코디 추천, 후속 조건 변경을 요청해 보세요.</p>
+      </div>
+      <button id="newSession" class="secondary">새 대화</button>
+    </div>
+
+    <div class="workspace">
+      <section class="panel">
+        <div class="top-fields">
+          <div class="field">
+            <label for="userId">사용자 ID</label>
+            <input id="userId" value="local" maxlength="100">
+          </div>
+          <div class="field">
+            <label>현재 대화 세션</label>
+            <input id="sessionId" readonly>
+          </div>
+        </div>
+
+        <div id="messages" class="messages">
+          <div class="bubble assistant">안녕하세요! 원하는 스타일이나 예산을 알려주세요.
+
+예시:
+• 오늘 서울 날씨에 맞는 출근 코디 추천해 줘.
+• 5만 원 이하 미니멀 니트를 찾아 줘.
+• 이 코디를 플랜으로 저장해 줘.</div>
+        </div>
+
+        <form id="chatForm">
+          <div class="field">
+            <label for="messageInput">무엇을 도와드릴까요?</label>
+            <textarea id="messageInput" required maxlength="2000"
+              placeholder="예: 오늘 서울 날씨 고려해서 출근 코디 추천해 줘."></textarea>
+          </div>
+          <div class="row" style="justify-content:space-between">
+            <span class="muted">같은 세션에서 이전 조건을 기억합니다.</span>
+            <button id="sendButton" type="submit">보내기</button>
+          </div>
+        </form>
+        <div id="processing" class="status hidden" role="status" aria-live="polite">
+          요청 처리 중입니다. 지역·날씨·상품 정보를 확인하고 있습니다.
+        </div>
+        <div id="chatError" class="status error hidden" role="alert"></div>
+      </section>
+
+      <aside class="panel">
+        <div class="section-title">
+          <h3>실행 과정 및 Tool 호출 이력</h3>
+          <button id="deleteCurrentLog" class="danger secondary" disabled>로그 삭제</button>
+        </div>
+        <p id="runSummary" class="muted">대화를 실행하면 단계별 처리 기록이 표시됩니다.</p>
+        <div id="timeline" class="timeline">
+          <div class="empty">아직 실행 기록이 없습니다.</div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="plansView" class="view">
+    <div class="section-title">
+      <div>
+        <h2>내 코디 플랜</h2>
+        <p class="muted">대화에서 저장을 요청한 코디 플랜을 조회하고 관리할 수 있습니다.</p>
+      </div>
+      <button id="refreshPlans">새로고침</button>
+    </div>
+    <div class="workspace">
+      <section class="panel">
+        <h3>저장된 플랜</h3>
+        <div id="planList" class="cards"><div class="empty">불러오는 중...</div></div>
+      </section>
+      <section class="panel">
+        <h3>플랜 상세 및 수정</h3>
+        <div id="planDetail" class="empty">왼쪽 목록에서 플랜을 선택하세요.</div>
+      </section>
+    </div>
+  </section>
+
+  <section id="logsView" class="view">
+    <div class="section-title">
+      <div>
+        <h2>Agent 실행 기록</h2>
+        <p class="muted">실행별 Tool 호출 순서, 성공·실패 및 재계획 지점을 확인합니다.</p>
+      </div>
+      <button id="refreshLogs">새로고침</button>
+    </div>
+    <div class="workspace">
+      <section class="panel">
+        <h3>최근 실행 목록</h3>
+        <div id="runList" class="cards"><div class="empty">불러오는 중...</div></div>
+      </section>
+      <section class="panel">
+        <div class="section-title">
+          <h3>실행 상세</h3>
+          <button id="deleteSelectedLog" class="danger secondary" disabled>실행 로그 삭제</button>
+        </div>
+        <div id="logDetail" class="empty">실행 기록을 선택하세요.</div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const api = "";
+  const userIdInput = $("userId");
+  const sessionInput = $("sessionId");
+  const messages = $("messages");
+
+  let sessionId = sessionStorage.getItem("fashionSessionId");
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem("fashionSessionId", sessionId);
+  }
+  sessionInput.value = sessionId;
+  userIdInput.value = localStorage.getItem("fashionUserId") || "local";
+
+  let currentRunId = null;
+  let selectedLogId = null;
+  let selectedPlanId = null;
+  let latestEvents = [];
+
+  const labels = {
+    "agent.started": "Agent 실행 시작",
+    "tool.started": "Tool 호출 시작",
+    "tool.completed": "Tool 호출 완료",
+    "agent.completed": "Agent 실행 완료",
+    "agent.failed": "Agent 실행 실패",
+    "plan.saved": "코디 플랜 저장",
+    "plan.replanned": "재계획 발생"
+  };
+
+  function addBubble(type, text) {
+    const div = document.createElement("div");
+    div.className = `bubble ${type}`;
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function setError(message) {
+    $("chatError").textContent = message;
+    $("chatError").classList.remove("hidden");
+  }
+
+  function clearError() {
+    $("chatError").textContent = "";
+    $("chatError").classList.add("hidden");
+  }
+
+  function explainError(payload) {
+    const error = payload?.error || {};
+    const code = error.code || "";
+    const messagesByCode = {
+      INVALID_KEY: "외부 API 키가 없거나 유효하지 않습니다. 프로젝트 루트의 .env 설정을 확인해 주세요.",
+      API_LIMIT: "외부 API 호출 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+      NO_RESULT: "조건에 맞는 결과를 찾지 못했습니다. 검색 조건을 바꿔 보세요.",
+      UPSTREAM_ERROR: "외부 API 연결 또는 응답에 문제가 발생했습니다.",
+      AGENT_LIMIT: "Agent 실행 단계 제한에 도달했습니다. 요청을 단순화해 주세요.",
+      AGENT_ERROR: "Agent 실행에 실패했습니다. 서버 터미널의 오류와 API 설정을 확인해 주세요."
+    };
+    return messagesByCode[code] || error.message || payload?.detail || "요청을 처리하지 못했습니다.";
+  }
+
+  function eventLabel(event) {
+    if (event.event_type === "tool.started") {
+      return `${event.tool_name || "Tool"} 호출 시작`;
+    }
+    if (event.event_type === "tool.completed") {
+      return `${event.tool_name || "Tool"} 호출 결과`;
+    }
+    return labels[event.event_type] || event.event_type;
+  }
+
+  function renderTimeline(events, run) {
+    const container = $("timeline");
+    container.replaceChildren();
+    latestEvents = events || [];
+
+    if (!events || events.length === 0) {
+      container.innerHTML = '<div class="empty">표시할 이벤트가 없습니다.</div>';
+      return;
+    }
+
+    const hasReplan = events.some(e => e.event_type === "plan.replanned");
+    $("runSummary").textContent =
+      `실행 상태: ${run?.status || "확인 불가"} · ` +
+      `Tool 및 이벤트 ${events.length}건 · ` +
+      (hasReplan ? "재계획 발생" : "재계획 기록 없음");
+
+    events.forEach(event => {
+      const item = document.createElement("div");
+      const isReplan = event.event_type === "plan.replanned";
+      const status = event.status || "";
+      item.className = "event " +
+        (isReplan ? "replanned" :
+          status === "failed" ? "failed" :
+          status === "success" ? "success" : "");
+
+      const title = document.createElement("strong");
+      title.textContent = eventLabel(event) +
+        (isReplan ? " · 재계획" : "");
+      const meta = document.createElement("p");
+      const parts = [];
+      if (event.created_at) parts.push(new Date(event.created_at).toLocaleString("ko-KR"));
+      if (status) parts.push(status);
+      if (event.duration_ms != null) parts.push(`${event.duration_ms}ms`);
+      if (event.error_code) parts.push(`오류: ${event.error_code}`);
+      meta.textContent = parts.join(" · ");
+
+      item.append(title, meta);
+
+      if (event.input_data && Object.keys(event.input_data).length) {
+        const input = document.createElement("pre");
+        input.textContent = "입력: " + JSON.stringify(event.input_data);
+        item.appendChild(input);
+      }
+      if (event.output_summary && Object.keys(event.output_summary).length) {
+        const output = document.createElement("pre");
+        output.textContent = "결과: " + JSON.stringify(event.output_summary);
+        item.appendChild(output);
+      }
+      container.appendChild(item);
+    });
+  }
+
+  async function loadRunDetail(runId, target = "timeline") {
+    const response = await fetch(`${api}/api/events/runs/${encodeURIComponent(runId)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "실행 기록 조회에 실패했습니다.");
+
+    if (target === "timeline") {
+      renderTimeline(data.events, data.run);
+      currentRunId = runId;
+      $("deleteCurrentLog").disabled = false;
+    } else {
+      selectedLogId = runId;
+      $("deleteSelectedLog").disabled = false;
+      renderLogDetail(data);
+    }
+    return data;
+  }
+
+  function renderLogDetail(data) {
+    const container = $("logDetail");
+    container.replaceChildren();
+    const run = data.run || {};
+    const heading = document.createElement("p");
+    heading.textContent = `${run.user_request || "요청"} · 상태: ${run.status}`;
+    container.appendChild(heading);
+
+    const timeline = document.createElement("div");
+    timeline.className = "timeline";
+    container.appendChild(timeline);
+
+    (data.events || []).forEach(event => {
+      const item = document.createElement("div");
+      item.className = "event " +
+        (event.event_type === "plan.replanned" ? "replanned" :
+          event.status === "failed" ? "failed" :
+          event.status === "success" ? "success" : "");
+      const title = document.createElement("strong");
+      title.textContent = eventLabel(event);
+      const meta = document.createElement("p");
+      meta.textContent = [
+        event.created_at ? new Date(event.created_at).toLocaleString("ko-KR") : "",
+        event.status || "",
+        event.error_code ? `오류: ${event.error_code}` : ""
+      ].filter(Boolean).join(" · ");
+      item.append(title, meta);
+      if (event.input_data) {
+        const pre = document.createElement("pre");
+        pre.textContent = "입력: " + JSON.stringify(event.input_data);
+        item.appendChild(pre);
+      }
+      if (event.output_summary) {
+        const pre = document.createElement("pre");
+        pre.textContent = "결과: " + JSON.stringify(event.output_summary);
+        item.appendChild(pre);
+      }
+      timeline.appendChild(item);
+    });
+  }
+
+  $("chatForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    clearError();
+
+    const message = $("messageInput").value.trim();
+    if (!message) return;
+
+    const userId = userIdInput.value.trim();
+    if (!userId) {
+      setError("사용자 ID를 입력해 주세요.");
+      return;
+    }
+
+    localStorage.setItem("fashionUserId", userId);
+    addBubble("user", message);
+    $("messageInput").value = "";
+    $("sendButton").disabled = true;
+    $("processing").classList.remove("hidden");
+    $("runSummary").textContent = "요청 처리 중입니다.";
+    $("timeline").innerHTML = '<div class="empty">Agent가 요청을 처리하고 있습니다.</div>';
+    $("deleteCurrentLog").disabled = true;
+
+    try {
+      const response = await fetch(`${api}/api/agent/run`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          user_id: userId,
+          session_id: sessionId,
+          message
+        })
+      });
+
+      const payload = await response.json();
+      const data = payload.data || {};
+      const runId = data.run_id || payload.run_id || null;
+
+      if (response.ok && payload.ok) {
+        addBubble("assistant", data.answer || "응답이 비어 있습니다.");
+      } else {
+        addBubble("assistant", explainError(payload));
+        setError(explainError(payload));
+      }
+
+      if (runId) {
+        try {
+          await loadRunDetail(runId);
+        } catch (error) {
+          $("runSummary").textContent = "실행 기록을 불러오지 못했습니다: " + error.message;
+        }
+      } else {
+        $("runSummary").textContent = "실행 ID가 응답에 없어 상세 이력을 조회할 수 없습니다.";
+      }
+    } catch (error) {
+      const messageText = "서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.";
+      addBubble("assistant", messageText);
+      setError(messageText);
+    } finally {
+      $("sendButton").disabled = false;
+      $("processing").classList.add("hidden");
+    }
+  });
+
+  $("newSession").addEventListener("click", () => {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem("fashionSessionId", sessionId);
+    sessionInput.value = sessionId;
+    messages.replaceChildren();
+    addBubble("assistant", "새 대화를 시작합니다. 어떤 코디를 찾고 있나요?");
+    currentRunId = null;
+    $("timeline").innerHTML = '<div class="empty">아직 실행 기록이 없습니다.</div>';
+    $("runSummary").textContent = "새 대화 세션입니다.";
+    $("deleteCurrentLog").disabled = true;
+    clearError();
+  });
+
+  async function deleteRun(runId) {
+    if (!confirm("이 실행 기록과 연결된 이벤트를 삭제할까요?")) return;
+    const response = await fetch(`${api}/api/events/runs/${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "로그 삭제에 실패했습니다.");
+
+    if (currentRunId === runId) {
+      currentRunId = null;
+      $("timeline").innerHTML = '<div class="empty">실행 로그가 삭제되었습니다.</div>';
+      $("runSummary").textContent = "실행 로그가 삭제되었습니다.";
+      $("deleteCurrentLog").disabled = true;
+    }
+    if (selectedLogId === runId) {
+      selectedLogId = null;
+      $("logDetail").textContent = "실행 로그가 삭제되었습니다.";
+      $("deleteSelectedLog").disabled = true;
+    }
+    await loadLogs();
+  }
+
+  $("deleteCurrentLog").addEventListener("click", async () => {
+    if (!currentRunId) return;
+    try { await deleteRun(currentRunId); }
+    catch (error) { alert(error.message); }
+  });
+
+  $("deleteSelectedLog").addEventListener("click", async () => {
+    if (!selectedLogId) return;
+    try { await deleteRun(selectedLogId); }
+    catch (error) { alert(error.message); }
+  });
+
+  async function loadPlans() {
+    const userId = encodeURIComponent(userIdInput.value.trim() || "local");
+    const response = await fetch(`${api}/api/plans?user_id=${userId}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "플랜 조회에 실패했습니다.");
+
+    const list = $("planList");
+    list.replaceChildren();
+
+    if (!data.items?.length) {
+      list.innerHTML = '<div class="empty">저장된 플랜이 없습니다. 대화에서 "이 코디를 플랜으로 저장해 줘"라고 요청해 보세요.</div>';
+      $("planDetail").textContent = "선택한 플랜이 없습니다.";
+      return;
+    }
+
+    data.items.forEach(plan => {
+      const button = document.createElement("button");
+      button.className = "plan-card";
+      const title = document.createElement("strong");
+      title.textContent = plan.title;
+      const info = document.createElement("span");
+      info.className = "muted";
+      info.textContent = [
+        `플랜 #${plan.id}`,
+        plan.occasion,
+        plan.season,
+        plan.budget != null ? `${Number(plan.budget).toLocaleString()}원 이하` : "",
+        `${plan.products?.length || 0}개 상품`,
+        plan.status
+      ].filter(Boolean).join(" · ");
+      button.append(title, info);
+      button.addEventListener("click", () => showPlan(plan.id));
+      list.appendChild(button);
+    });
+  }
+
+  async function showPlan(planId) {
+    const userId = encodeURIComponent(userIdInput.value.trim() || "local");
+    const response = await fetch(`${api}/api/plans/${planId}?user_id=${userId}`);
+    const plan = await response.json();
+    if (!response.ok) throw new Error(plan.detail || "플랜 상세 조회에 실패했습니다.");
+
+    selectedPlanId = planId;
+    const container = $("planDetail");
+    container.replaceChildren();
+
+    const form = document.createElement("form");
+    form.innerHTML = `
+      <div class="field">
+        <label for="editTitle">플랜 제목</label>
+        <input id="editTitle" maxlength="120" required>
+      </div>
+      <div class="field">
+        <label for="editDescription">설명</label>
+        <textarea id="editDescription" maxlength="2000"></textarea>
+      </div>
+      <div class="field">
+        <label for="editStatus">상태</label>
+        <select id="editStatus">
+          <option value="draft">초안</option>
+          <option value="planned">예정</option>
+          <option value="completed">완료</option>
+          <option value="archived">보관</option>
+        </select>
+      </div>
+      <p class="muted" id="planMeta"></p>
+      <h3>저장된 상품</h3>
+      <div id="planProducts"></div>
+      <div class="actions">
+        <button type="submit">수정 저장</button>
+        <button type="button" class="danger" id="deletePlan">플랜 삭제</button>
+      </div>
+    `;
+    container.appendChild(form);
+
+    $("editTitle").value = plan.title || "";
+    $("editDescription").value = plan.description || "";
+    $("editStatus").value = plan.status || "draft";
+    $("planMeta").textContent = [
+      `플랜 #${plan.id}`,
+      plan.occasion,
+      plan.season,
+      plan.budget != null ? `예산 ${Number(plan.budget).toLocaleString()}원` : "",
+      `재계획 ${plan.replan_count || 0}회`
+    ].filter(Boolean).join(" · ");
+
+    const products = $("planProducts");
+    if (!plan.products?.length) {
+      products.textContent = "저장된 상품이 없습니다.";
+    } else {
+      plan.products.forEach(product => {
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = `${product.name || "상품명 없음"} · ${product.brand_name || "브랜드 정보 없음"} · ${product.sale_price != null ? Number(product.sale_price).toLocaleString() + "원" : "가격 정보 없음"}`;
+        products.appendChild(p);
+      });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch(`${api}/api/plans/${planId}?user_id=${userId}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          title: $("editTitle").value.trim(),
+          description: $("editDescription").value,
+          status: $("editStatus").value
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        alert(result.detail || "플랜 수정에 실패했습니다.");
+        return;
+      }
+      alert("플랜을 수정했습니다.");
+      await loadPlans();
+      await showPlan(planId);
+    });
+
+    $("deletePlan").addEventListener("click", async () => {
+      if (!confirm("이 플랜을 삭제할까요?")) return;
+      const response = await fetch(`${api}/api/plans/${planId}?user_id=${userId}`, {
+        method: "DELETE"
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        alert(result.detail || "플랜 삭제에 실패했습니다.");
+        return;
+      }
+      selectedPlanId = null;
+      $("planDetail").textContent = "플랜이 삭제되었습니다.";
+      await loadPlans();
+    });
+  }
+
+  async function loadLogs() {
+    const response = await fetch(`${api}/api/events?limit=100&offset=0`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "실행 기록 조회에 실패했습니다.");
+
+    const grouped = new Map();
+    (data.items || []).forEach(event => {
+      if (!grouped.has(event.run_id)) grouped.set(event.run_id, event);
+    });
+
+    const list = $("runList");
+    list.replaceChildren();
+
+    if (!grouped.size) {
+      list.innerHTML = '<div class="empty">저장된 실행 기록이 없습니다.</div>';
+      return;
+    }
+
+    grouped.forEach((event, runId) => {
+      const button = document.createElement("button");
+      button.className = "run-card";
+      const title = document.createElement("strong");
+      title.textContent = event.user_request || `실행 ${runId.slice(0, 8)}`;
+      const meta = document.createElement("span");
+      meta.className = "muted";
+      meta.textContent = `${event.created_at ? new Date(event.created_at).toLocaleString("ko-KR") : ""} · 세션 ${event.session_id || "legacy"} · 실행 ID ${runId.slice(0, 8)}`;
+      button.append(title, meta);
+      button.addEventListener("click", async () => {
+        try {
+          await loadRunDetail(runId, "logs");
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+      list.appendChild(button);
+    });
+  }
+
+  const views = {
+    chat: $("chatView"),
+    plans: $("plansView"),
+    logs: $("logsView")
+  };
+
+  document.querySelectorAll("nav button[data-view]").forEach(button => {
+    button.addEventListener("click", async () => {
+      document.querySelectorAll("nav button").forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+      Object.values(views).forEach(view => view.classList.remove("active"));
+      views[button.dataset.view].classList.add("active");
+
+      try {
+        if (button.dataset.view === "plans") await loadPlans();
+        if (button.dataset.view === "logs") await loadLogs();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  });
+
+  $("refreshPlans").addEventListener("click", () => loadPlans().catch(e => alert(e.message)));
+  $("refreshLogs").addEventListener("click", () => loadLogs().catch(e => alert(e.message)));
+})();
+</script>
+</body>
+</html>
