@@ -780,6 +780,53 @@ def run_fashion_agent(
                 search_result = _decode_tool_result(message.content)
                 break
 
+        # 저장 요청인데 현재 턴에 상품 검색 결과가 없으면
+        # 이전 대화 Memory의 검색 조건으로 상품을 다시 조회한다.
+        if save_requested and search_result is None:
+            previous_context = memory_state.get("context", {})
+
+            allowed_fields = {
+                "keyword",
+                "category",
+                "brand",
+                "gender",
+                "min_price",
+                "max_price",
+                "color",
+                "size",
+                "sort",
+                "limit",
+            }
+
+            search_arguments = {
+                key: previous_context[key]
+                for key in allowed_fields
+                if key in previous_context
+                and previous_context[key] is not None
+            }
+
+            if not any(
+                search_arguments.get(key)
+                for key in ("keyword", "category", "brand")
+            ):
+                search_result = fail(
+                    "NO_SEARCH_CONTEXT",
+                    "저장할 이전 상품 검색 조건이 없습니다. "
+                    "먼저 상품 추천을 요청해 주세요.",
+                )
+            else:
+                # 이전 검색 조건을 유지해 상품을 다시 조회한다.
+                search_result = execute_tool_with_event(
+                    "search_products",
+                    **search_arguments,
+                )
+
+                if "search_products" not in tools_used:
+                    tools_used.append("search_products")
+
+                if search_result.get("ok") is True:
+                    turn_search_context = dict(search_arguments)
+
         plan = None
         plan_saved = False
 
@@ -812,7 +859,9 @@ def run_fashion_agent(
                     status="failed",
                     error_code=error_code,
                 )
-                return fail(error_code, error_message)
+                failure = fail(error_code, error_message)
+                failure["run_id"] = run_id
+                return failure
 
             verified_items = _get_verified_items(
                 search_result,
@@ -939,7 +988,9 @@ def run_fashion_agent(
             error_code=error_code,
         )
 
-        return fail(error_code, error_message)
+        failure = fail(error_code, error_message)
+        failure["run_id"] = run_id
+        return failure
 
     finally:
         deactivate_agent_run(context_tokens)

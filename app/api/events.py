@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..repositories.event_repository import (
     get_agent_run_detail,
+    delete_agent_run,
     init_database,
     list_recent_events,
 )
@@ -39,3 +40,18 @@ def get_run_detail(run_id: str):
         )
 
     return result
+
+
+
+@router.delete("/runs/{run_id}", summary="특정 실행 로그 삭제")
+def delete_run_detail(run_id: str):
+    """실행 기록과 연결된 이벤트를 삭제한다."""
+    init_database()
+
+    if not delete_agent_run(run_id):
+        raise HTTPException(
+            status_code=404,
+            detail="삭제할 실행 기록을 찾을 수 없습니다.",
+        )
+
+    return {"deleted": True, "run_id": run_id}

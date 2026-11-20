@@ -301,3 +301,17 @@ def get_agent_run_detail(run_id: str) -> dict[str, Any] | None:
         "run": dict(run),
         "events": [_decode_event(row) for row in events],
     }
+
+
+
+def delete_agent_run(run_id: str) -> bool:
+    """특정 Agent 실행 기록과 연결된 이벤트를 삭제한다."""
+    init_database()
+
+    with _connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM agent_runs WHERE run_id = ?",
+            (run_id,),
+        )
+
+    return cursor.rowcount > 0

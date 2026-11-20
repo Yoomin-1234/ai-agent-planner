@@ -3,6 +3,8 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pathlib import Path
 
 from .api import tools, events, plans, agent
 
@@ -38,3 +40,11 @@ app.include_router(agent.router)
 @app.get("/health", tags=["health"], summary="서버 상태 확인")
 def health_check():
     return {"status": "ok", "service": "ai-fashion-planner"}
+
+
+
+@app.get("/", include_in_schema=False)
+def frontend():
+    """사용자용 프론트엔드 화면을 제공한다."""
+    index_path = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+    return FileResponse(index_path)
